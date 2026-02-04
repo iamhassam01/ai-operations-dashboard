@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Next.js build
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Secrets & credentials
+config_b64.txt
+
+# Internal documents (delivery reports, audits, analysis, guidance)
+MILESTONE_1_COMPREHENSIVE_GUIDANCE.md
+MILESTONE_1_DELIVERY_REPORT.md
+MILESTONE_STATUS_REPORT.md
+DESIGN_SYSTEM.md
+REQUIREMENTS_GAP_ANALYSIS_AND_UI_UX_AUDIT.MD
+REQUIREMENTS_GAP_ANALYSIS_AND_UI_UX_AUDIT_V2.md
+RESEARCH_AND_AUDIT.md
+FEATURES ANALYSIS FOR THE AI- ASSISTANCE SYSTEM.md
+COMPREHENSIVE_KNOWLEDGE_BASE_AND_UI_UX_GUIDELINES.md
+COMPREHENSIVE_KNOWLEDGE_BASE_AND_UI_UX_GUIDELINES.txt
+Deliverables & Pricing.md
+Project Overview.md
+Acceptance_Test_Scenario_MVP.md
+image/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Internal agent config
+.github/copilot-instructions.md
+
+# TypeScript build info
+*.tsbuildinfo
+next-env.d.ts
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# PM2
+.pm2/
+logs/
+
+# Setup script
+setup-git.ps1
