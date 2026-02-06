@@ -1,0 +1,374 @@
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  MERIDIAN DESIGN SYSTEM — Tailwind v4 Theme Tokens             */
+/*  Codename: Meridian · Version 1.0                              */
+/* ═══════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Status Colors (used directly in Tailwind classes) ── */
+  --color-success: #22C55E;
+  --color-success-muted: #16A34A;
+  --color-warning: #F59E0B;
+  --color-warning-muted: #D97706;
+  --color-error: #EF4444;
+  --color-error-muted: #DC2626;
+  --color-info: #3B82F6;
+  --color-info-muted: #2563EB;
+
+  /* ── Accent (Indigo) ── */
+  --color-accent: #6366F1;
+  --color-accent-hover: #4F46E5;
+  --color-accent-active: #4338CA;
+  --color-accent-light: #818CF8;
+  --color-accent-subtle: #EEF2FF;
+  --color-accent-deep: #312E81;
+
+  /* ── Semantic Surfaces (light default, overridden in dark) ── */
+  --color-surface-ground: var(--surface-ground);
+  --color-surface-primary: var(--surface-primary);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-surface-accent: var(--surface-accent);
+
+  /* ── Semantic Text ── */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-placeholder: var(--text-placeholder);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-accent: var(--text-accent);
+
+  /* ── Semantic Borders ── */
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-hover: var(--border-hover);
+  --color-border-focus: var(--border-focus);
+  --color-border-accent: var(--border-accent);
+
+  /* ── Interactive ── */
+  --color-interactive-primary: var(--interactive-primary);
+  --color-interactive-primary-hover: var(--interactive-primary-hover);
+  --color-interactive-secondary: var(--interactive-secondary);
+  --color-interactive-secondary-hover: var(--interactive-secondary-hover);
+  --color-interactive-ghost-hover: var(--interactive-ghost-hover);
+  --color-interactive-destructive: var(--interactive-destructive);
+
+  /* ── Sidebar ── */
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-sidebar-surface: var(--sidebar-surface);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-text-active: var(--sidebar-text-active);
+  --color-sidebar-accent: var(--sidebar-accent);
+
+  /* ── Typography ── */
+  --font-family-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* ── Border Radius ── */
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+
+  /* ── Animation ── */
+  --animate-fade-in-up: fadeInUp 300ms cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  --animate-slide-in-right: slideInRight 300ms cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  --animate-shimmer: shimmer 1.5s ease-in-out infinite;
+  --animate-spin-slow: spin 0.6s linear infinite;
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  SEMANTIC TOKENS — Light Mode (default)                        */
+/* ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Surfaces ── */
+  --surface-ground:     #F8FAFC;
+  --surface-primary:    #FFFFFF;
+  --surface-secondary:  #F1F5F9;
+  --surface-elevated:   #FFFFFF;
+  --surface-hover:      #F1F5F9;
+  --surface-active:     #E8ECF1;
+  --surface-accent:     #EEF2FF;
+
+  /* ── Text ── */
+  --text-primary:       #0F172A;
+  --text-secondary:     #475569;
+  --text-tertiary:      #64748B;
+  --text-placeholder:   #94A3B8;
+  --text-disabled:      #CBD5E1;
+  --text-inverse:       #FFFFFF;
+  --text-accent:        #4F46E5;
+
+  /* ── Borders ── */
+  --border-default:     #E2E8F0;
+  --border-subtle:      #F1F5F9;
+  --border-hover:       #CBD5E1;
+  --border-focus:       #6366F1;
+  --border-accent:      #C7D2FE;
+
+  /* ── Interactive ── */
+  --interactive-primary:        #6366F1;
+  --interactive-primary-hover:  #4F46E5;
+  --interactive-primary-active: #4338CA;
+  --interactive-secondary:      #F1F5F9;
+  --interactive-secondary-hover:#E2E8F0;
+  --interactive-ghost-hover:    #F1F5F9;
+  --interactive-destructive:    #EF4444;
+
+  /* ── Sidebar ── */
+  --sidebar-bg:         #FFFFFF;
+  --sidebar-surface:    #F8FAFC;
+  --sidebar-hover:      #F1F5F9;
+  --sidebar-active:     #EEF2FF;
+  --sidebar-border:     #E2E8F0;
+  --sidebar-text:       #64748B;
+  --sidebar-text-active: #0F172A;
+  --sidebar-accent:     #6366F1;
+
+  /* ── Overlay ── */
+  --overlay-backdrop:   rgba(0, 0, 0, 0.5);
+  --overlay-scrim:      rgba(0, 0, 0, 0.3);
+
+  /* ── Status Light Surfaces ── */
+  --status-success-surface: #F0FDF4;
+  --status-warning-surface: #FFFBEB;
+  --status-error-surface:   #FEF2F2;
+  --status-info-surface:    #EFF6FF;
+
+  /* ── Typography Tokens ── */
+  --text-display:       1.5rem;
+  --text-heading:       1.125rem;
+  --text-subheading:    0.875rem;
+  --text-body:          0.875rem;
+  --text-body-small:    0.8125rem;
+  --text-caption:       0.75rem;
+  --text-overline:      0.6875rem;
+  --text-metric:        1.75rem;
+  --text-metric-small:  1.25rem;
+
+  --leading-display:    2rem;
+  --leading-heading:    1.75rem;
+  --leading-body:       1.375rem;
+  --leading-caption:    1rem;
+  --leading-metric:     2.25rem;
+
+  --weight-regular:     400;
+  --weight-medium:      500;
+  --weight-semibold:    600;
+  --weight-bold:        700;
+
+  --tracking-tight:    -0.03em;
+  --tracking-snug:     -0.02em;
+  --tracking-normal:    0em;
+  --tracking-wide:      0.01em;
+  --tracking-wider:     0.05em;
+
+  /* ── Spacing (4px grid) ── */
+  --space-0: 0px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ── Motion ── */
+  --ease-default: cubic-bezier(0.25, 0.1, 0.25, 1.0);
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out:  cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-instant: 0ms;
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-moderate: 300ms;
+  --duration-slow: 500ms;
+
+  /* ── Focus Ring ── */
+  --shadow-focus: 0 0 0 2px var(--surface-primary), 0 0 0 4px var(--border-focus);
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  SEMANTIC TOKENS — Dark Mode                                   */
+/* ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="dark"] {
+  --surface-ground:     #09090B;
+  --surface-primary:    #111318;
+  --surface-secondary:  #191C24;
+  --surface-elevated:   #1E2230;
+  --surface-hover:      #1E2230;
+  --surface-active:     #2A3040;
+  --surface-accent:     #1E1B4B;
+
+  --text-primary:       #F1F5F9;
+  --text-secondary:     #A8B1C4;
+  --text-tertiary:      #5A6580;
+  --text-placeholder:   #3F4A5E;
+  --text-disabled:      #2A3040;
+  --text-inverse:       #09090B;
+  --text-accent:        #818CF8;
+
+  --border-default:     #1E2230;
+  --border-subtle:      #191C24;
+  --border-hover:       #2A3040;
+  --border-focus:       #6366F1;
+  --border-accent:      #312E81;
+
+  --interactive-primary:        #6366F1;
+  --interactive-primary-hover:  #818CF8;
+  --interactive-primary-active: #A5B4FC;
+  --interactive-secondary:      #1E2230;
+  --interactive-secondary-hover:#2A3040;
+  --interactive-ghost-hover:    #191C24;
+  --interactive-destructive:    #EF4444;
+
+  --sidebar-bg:         #06060A;
+  --sidebar-surface:    #09090B;
+  --sidebar-hover:      #111318;
+  --sidebar-active:     #1E1B4B;
+  --sidebar-border:     #111318;
+  --sidebar-text:       #A8B1C4;
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-accent:     #818CF8;
+
+  --overlay-backdrop:   rgba(0, 0, 0, 0.7);
+  --overlay-scrim:      rgba(0, 0, 0, 0.5);
+
+  --status-success-surface: #052E16;
+  --status-warning-surface: #451A03;
+  --status-error-surface:   #450A0A;
+  --status-info-surface:    #172554;
+
+  --shadow-focus: 0 0 0 2px var(--surface-primary), 0 0 0 4px var(--border-focus);
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  KEYFRAME ANIMATIONS                                           */
+/* ═══════════════════════════════════════════════════════════════ */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  BASE STYLES                                                   */
+/* ═══════════════════════════════════════════════════════════════ */
+
+html {
+  transition: background-color var(--duration-normal) var(--ease-default),
+              color var(--duration-normal) var(--ease-default);
+}
+
+body {
+  font-family: var(--font-family-sans, 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  background-color: var(--surface-ground);
+  color: var(--text-primary);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+/* ── Tabular numbers for data ── */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+/* ═══════════════════════════════════════════════════════════════ */
+/*  UTILITY CLASSES                                               */
+/* ═══════════════════════════════════════════════════════════════ */
+
+/* ── Stagger Children Animation ── */
+.stagger-children > * { animation: fadeInUp 300ms var(--ease-default) both; }
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ── Skeleton Shimmer ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-secondary) 25%, var(--surface-hover) 50%, var(--surface-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Spinner ── */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--interactive-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+/* ── Focus Ring ── */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* ── Scrollbar Hide (for horizontal scrollable areas) ── */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
