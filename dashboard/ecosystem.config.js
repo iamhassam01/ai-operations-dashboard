@@ -16,6 +16,7 @@ module.exports = {
         OPENCLAW_URL: 'http://127.0.0.1:18789',
         OPENCLAW_TOKEN: process.env.OPENCLAW_TOKEN,
         OPENCLAW_HOOK_TOKEN: process.env.OPENCLAW_HOOK_TOKEN,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       },
       max_memory_restart: '500M',
       instances: 1,

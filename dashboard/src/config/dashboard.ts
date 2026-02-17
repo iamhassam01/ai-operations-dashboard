@@ -1,4 +1,4 @@
-import { LayoutDashboard, ListTodo, Phone, Settings, Bell } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Phone, Settings, Bell, MessageSquareText } from 'lucide-react';
 
 export const dashboardConfig = {
   name: 'AI Operations Dashboard',
@@ -11,6 +11,7 @@ export const dashboardConfig = {
     main: [
       { title: 'Dashboard', href: '/', icon: LayoutDashboard },
       { title: 'Tasks', href: '/tasks', icon: ListTodo, badgeKey: 'pending_tasks' as const },
+      { title: 'Agent', href: '/agent', icon: MessageSquareText },
       { title: 'Calls', href: '/calls', icon: Phone },
       { title: 'Notifications', href: '/notifications', icon: Bell, badgeKey: 'unread_notifications' as const },
       { title: 'Settings', href: '/settings', icon: Settings },
