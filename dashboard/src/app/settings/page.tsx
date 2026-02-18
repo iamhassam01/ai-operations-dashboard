@@ -1,20 +1,28 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Phone, Calendar, Bot, Check, Clock } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Save, Phone, Calendar, Bot, Check, Clock, Brain, Pencil, Trash2, X } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { OverlineHeading } from '@/components/ui/OverlineHeading';
 import { Input, Select } from '@/components/ui/Input';
 import { Toggle } from '@/components/ui/Toggle';
 import { Button } from '@/components/ui/Button';
 import { Badge, StatusDot } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
 
 interface Setting {
   key: string;
   value: unknown;
   description: string;
   updated_at: string;
+}
+
+interface Memory {
+  id: string;
+  category: string;
+  content: string;
+  created_at: string;
 }
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
@@ -44,6 +52,10 @@ export default function SettingsPage() {
   const [editedSettings, setEditedSettings] = useState<Record<string, string>>({});
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const [officeHours, setOfficeHours] = useState<Record<string, DaySchedule>>(DEFAULT_OFFICE_HOURS);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editMemoryContent, setEditMemoryContent] = useState('');
+  const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
 
   const { data: settings, isLoading } = useQuery<Setting[]>({
     queryKey: ['settings'],
@@ -111,24 +123,67 @@ export default function SettingsPage() {
     mutation.mutate({ key: 'office_hours', value: officeHours });
   };
 
+  const { data: health } = useQuery<{ services: Record<string, { status: string; detail: string }> }>({
+    queryKey: ['health'],
+    queryFn: () => fetch('/api/health').then((r) => r.json()),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  // Agent Memory
+  const { data: memories = [], isLoading: loadingMemories } = useQuery<Memory[]>({
+    queryKey: ['agent-memories'],
+    queryFn: () => fetch('/api/agent-memory').then((r) => r.json()),
+  });
+
+  const updateMemory = useMutation({
+    mutationFn: (data: { id: string; content: string }) =>
+      fetch('/api/agent-memory', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-memories'] });
+      setEditingMemoryId(null);
+      toast.success('Memory updated');
+    },
+    onError: () => toast.error('Failed to update memory'),
+  });
+
+  const deleteMemory = useMutation({
+    mutationFn: (id: string) =>
+      fetch('/api/agent-memory', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-memories'] });
+      setDeletingMemoryId(null);
+      toast.success('Memory deleted');
+    },
+    onError: () => toast.error('Failed to delete memory'),
+  });
+
   const integrations = [
     {
       name: 'OpenClaw AI Agent',
       icon: Bot,
-      status: 'connected' as const,
-      detail: 'Gateway running on port 18789',
+      status: (health?.services?.openclaw?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.openclaw?.detail || 'Checking...',
     },
     {
       name: 'Twilio Telephony',
       icon: Phone,
-      status: 'pending' as const,
-      detail: 'Awaiting Twilio credentials',
+      status: (health?.services?.twilio?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.twilio?.detail || 'Checking...',
     },
     {
       name: 'Google Calendar',
       icon: Calendar,
       status: 'pending' as const,
-      detail: 'Awaiting OAuth setup',
+      detail: 'Not configured yet',
     },
   ];
 
@@ -494,6 +549,142 @@ export default function SettingsPage() {
           ))}
         </div>
       </section>
+
+      {/* Section 8: Agent Memory */}
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+        <OverlineHeading action={
+          <span
+            className="text-[var(--text-tertiary)]"
+            style={{ fontSize: 'var(--text-caption)' }}
+          >
+            {memories.length} {memories.length === 1 ? 'memory' : 'memories'}
+          </span>
+        }>Agent Memory</OverlineHeading>
+        <p className="mt-1 text-[var(--text-tertiary)]" style={{ fontSize: 'var(--text-caption)' }}>
+          Things the agent has remembered about your preferences, context, and instructions.
+        </p>
+        <div className="mt-4 flex justify-end">
+          <Button variant="secondary" size="sm" onClick={() => setShowMemoryModal(true)}>
+            <Brain size={14} />
+            Manage Memories
+          </Button>
+        </div>
+      </section>
+
+      {/* Memory Management Modal */}
+      <Modal
+        open={showMemoryModal}
+        onClose={() => { setShowMemoryModal(false); setEditingMemoryId(null); setDeletingMemoryId(null); }}
+        title="Agent Memory"
+        maxWidth="600px"
+      >
+        <p className="mb-4 text-[var(--text-tertiary)]" style={{ fontSize: 'var(--text-caption)' }}>
+          {memories.length} {memories.length === 1 ? 'memory' : 'memories'} stored. Edit or delete memories the agent has saved about your preferences and context.
+        </p>
+        <div className="space-y-2">
+          {loadingMemories ? (
+            <div className="py-6 text-center text-xs text-[var(--text-tertiary)]">Loading memories...</div>
+          ) : memories.length === 0 ? (
+            <div className="py-6 text-center text-xs text-[var(--text-tertiary)]">
+              No memories stored yet. The agent will save memories as you interact with it.
+            </div>
+          ) : (
+            memories.map((mem) => (
+              <div
+                key={mem.id}
+                className="relative rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-secondary)] p-3"
+              >
+                {/* Delete confirmation overlay */}
+                {deletingMemoryId === mem.id && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--status-error-surface)] border border-error/30 px-3">
+                    <p className="text-xs text-error font-medium">Delete this memory?</p>
+                    <button
+                      onClick={() => deleteMemory.mutate(mem.id)}
+                      className="flex h-6 items-center justify-center rounded-[var(--radius-sm)] bg-error text-white hover:bg-error/90 transition-colors px-2 text-xs"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => setDeletingMemoryId(null)}
+                      className="flex h-6 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--surface-primary)] text-[var(--text-secondary)] border border-[var(--border-default)] hover:bg-[var(--surface-hover)] transition-colors px-2 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        mem.category === 'preference' ? 'accent' :
+                        mem.category === 'instruction' ? 'warning' :
+                        mem.category === 'fact' ? 'success' :
+                        'info'
+                      }
+                    >
+                      {mem.category}
+                    </Badge>
+                    <span className="text-[10px] text-[var(--text-tertiary)]">
+                      {new Date(mem.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {editingMemoryId === mem.id ? (
+                      <>
+                        <button
+                          onClick={() => updateMemory.mutate({ id: mem.id, content: editMemoryContent })}
+                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-success hover:bg-[var(--surface-hover)] transition-colors"
+                          title="Save"
+                        >
+                          <Check size={13} />
+                        </button>
+                        <button
+                          onClick={() => setEditingMemoryId(null)}
+                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] transition-colors"
+                          title="Cancel"
+                        >
+                          <X size={13} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => { setEditingMemoryId(mem.id); setEditMemoryContent(mem.content); }}
+                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingMemoryId(mem.id)}
+                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-error hover:bg-[var(--status-error-surface)] transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {editingMemoryId === mem.id ? (
+                  <textarea
+                    autoFocus
+                    value={editMemoryContent}
+                    onChange={(e) => setEditMemoryContent(e.target.value)}
+                    className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--border-focus)] bg-[var(--surface-ground)] text-[var(--text-primary)] px-2 py-1.5 text-xs focus:outline-none resize-none"
+                    rows={3}
+                  />
+                ) : (
+                  <p className="mt-2 text-xs text-[var(--text-primary)] leading-relaxed">
+                    {mem.content}
+                  </p>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

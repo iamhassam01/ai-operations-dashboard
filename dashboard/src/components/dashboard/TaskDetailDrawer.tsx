@@ -147,6 +147,26 @@ export function TaskDetailDrawer({
     },
   });
 
+  const resumeMutation = useMutation({
+    mutationFn: () =>
+      fetch(`/api/tasks/${taskId}/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).then((r) => {
+        if (!r.ok) throw new Error('Failed to resume task');
+        return r.json();
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['task-detail', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      toast.success(data.message || 'Task resumed — agent is processing it');
+    },
+    onError: () => toast.error('Failed to resume task'),
+  });
+
   const approvalMutation = useMutation({
     mutationFn: (data: { id: string; status: string }) =>
       fetch('/api/approvals', {
@@ -220,12 +240,12 @@ export function TaskDetailDrawer({
               )}
               {(task.status === 'pending_user_input' || task.status === 'new' || task.status === 'approved') && (
                 <button
-                  onClick={() => statusMutation.mutate('in_progress')}
-                  disabled={statusMutation.isPending}
+                  onClick={() => resumeMutation.mutate()}
+                  disabled={resumeMutation.isPending || statusMutation.isPending}
                   className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--interactive-primary)] px-3 py-1.5 text-[var(--text-inverse)] transition-colors hover:bg-[var(--interactive-primary-hover)] disabled:opacity-50"
                   style={{ fontSize: 'var(--text-caption)' }}
                 >
-                  <Play size={13} /> Continue
+                  <Play size={13} /> {resumeMutation.isPending ? 'Resuming...' : 'Continue'}
                 </button>
               )}
             </div>

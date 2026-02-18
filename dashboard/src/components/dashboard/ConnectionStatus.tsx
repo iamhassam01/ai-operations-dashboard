@@ -1,9 +1,14 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Phone, Calendar, Mic, Wifi, ArrowRight } from 'lucide-react';
+import { Phone, Calendar, Mic, Wifi, ArrowRight, Activity } from 'lucide-react';
 import { StatusDot } from '@/components/ui/Badge';
 import { OverlineHeading } from '@/components/ui/OverlineHeading';
+
+interface HealthData {
+  status: string;
+  services: Record<string, { status: string; detail: string }>;
+}
 
 interface ConnectionItem {
   label: string;
@@ -11,33 +16,6 @@ interface ConnectionItem {
   status: 'connected' | 'pending' | 'error';
   detail: string;
 }
-
-const connections: ConnectionItem[] = [
-  {
-    label: 'AI Agent',
-    icon: Wifi,
-    status: 'connected',
-    detail: 'OpenClaw Active',
-  },
-  {
-    label: 'Telephony',
-    icon: Phone,
-    status: 'pending',
-    detail: 'Awaiting Twilio',
-  },
-  {
-    label: 'Calendar',
-    icon: Calendar,
-    status: 'pending',
-    detail: 'Awaiting OAuth',
-  },
-  {
-    label: 'Recording',
-    icon: Mic,
-    status: 'pending',
-    detail: 'Needs Twilio',
-  },
-];
 
 const statusDotColor: Record<string, 'success' | 'warning' | 'error'> = {
   connected: 'success',
@@ -60,7 +38,42 @@ export function ConnectionStatus() {
     staleTime: 30000,
   });
 
+  const { data: health } = useQuery<HealthData>({
+    queryKey: ['health'],
+    queryFn: () => fetch('/api/health').then((r) => r.json()),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
   const inboundPhone = settings?.inbound_phone_country as string | undefined;
+
+  // Build dynamic connections from health check data
+  const connections: ConnectionItem[] = [
+    {
+      label: 'AI Agent',
+      icon: Wifi,
+      status: (health?.services?.openclaw?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.openclaw?.detail || 'Checking...',
+    },
+    {
+      label: 'Telephony',
+      icon: Phone,
+      status: (health?.services?.twilio?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.twilio?.detail || 'Checking...',
+    },
+    {
+      label: 'Calendar',
+      icon: Calendar,
+      status: 'pending',
+      detail: 'Not configured',
+    },
+    {
+      label: 'Recording',
+      icon: Mic,
+      status: (health?.services?.twilio?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.twilio?.status === 'connected' ? 'Via Twilio' : 'Requires Twilio',
+    },
+  ];
 
   return (
     <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">

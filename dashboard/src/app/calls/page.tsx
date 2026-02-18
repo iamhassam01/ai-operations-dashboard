@@ -1,17 +1,23 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   PhoneIncoming,
   PhoneOutgoing,
   Phone,
+  PhoneCall,
   Search,
   ChevronDown,
   ChevronUp,
   X,
+  Loader2,
+  CheckCircle2,
+  FileText,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { FilterPills } from '@/components/ui/FilterPills';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonList } from '@/components/ui/Skeleton';
@@ -62,11 +68,53 @@ function formatDuration(seconds: number): string {
 }
 
 export default function CallsPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [directionFilter, setDirectionFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showTestCallModal, setShowTestCallModal] = useState(false);
+  const [testCallNumber, setTestCallNumber] = useState('');
+  const [testCallLoading, setTestCallLoading] = useState(false);
+  const [testCallResult, setTestCallResult] = useState<{ success: boolean; callSid?: string; error?: string } | null>(null);
+
+  const transcribeMutation = useMutation({
+    mutationFn: (callId: string) =>
+      fetch(`/api/calls/${callId}/transcribe`, { method: 'POST' }).then(r => {
+        if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Transcription failed'); });
+        return r.json();
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['calls'] });
+      toast.success('Transcription complete');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const handleTestCall = async () => {
+    if (!testCallNumber.trim()) { toast.error('Enter a phone number'); return; }
+    setTestCallLoading(true);
+    setTestCallResult(null);
+    try {
+      const res = await fetch('/api/calls/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testCallNumber.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Call failed');
+      setTestCallResult({ success: true, callSid: data.callSid });
+      toast.success('Test call placed successfully!');
+      queryClient.invalidateQueries({ queryKey: ['calls'] });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to place call';
+      setTestCallResult({ success: false, error: msg });
+      toast.error(msg);
+    } finally {
+      setTestCallLoading(false);
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -99,20 +147,78 @@ export default function CallsPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1
-          className="font-bold text-[var(--text-primary)]"
-          style={{ fontSize: 'var(--text-heading)' }}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1
+            className="font-bold text-[var(--text-primary)]"
+            style={{ fontSize: 'var(--text-heading)' }}
+          >
+            Call History
+          </h1>
+          <p
+            className="mt-0.5 text-[var(--text-secondary)]"
+            style={{ fontSize: 'var(--text-body-small)' }}
+          >
+            View and manage all phone calls — Twilio connected
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<PhoneCall size={15} />}
+          onClick={() => { setShowTestCallModal(true); setTestCallResult(null); }}
         >
-          Call History
-        </h1>
-        <p
-          className="mt-0.5 text-[var(--text-secondary)]"
-          style={{ fontSize: 'var(--text-body-small)' }}
-        >
-          View and manage all phone calls
-        </p>
+          Make Test Call
+        </Button>
       </div>
+
+      {/* Test Call Modal */}
+      {showTestCallModal && (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--border-accent)] bg-[var(--surface-accent)] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <PhoneCall size={16} className="text-[var(--text-accent)]" />
+              <span className="text-sm font-medium text-[var(--text-primary)]">Place a Test Call</span>
+            </div>
+            <button onClick={() => setShowTestCallModal(false)} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
+              <X size={16} />
+            </button>
+          </div>
+          <p className="text-xs text-[var(--text-secondary)]">
+            Enter a phone number in E.164 format to receive a test call from your Twilio number (+12272637593).
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="tel"
+              value={testCallNumber}
+              onChange={(e) => setTestCallNumber(e.target.value)}
+              placeholder="+1234567890"
+              className="flex-1 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-primary)] text-[var(--text-primary)] py-2 px-3 text-sm placeholder:text-[var(--text-placeholder)] focus-ring"
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleTestCall}
+              loading={testCallLoading}
+              icon={testCallLoading ? <Loader2 size={14} className="animate-spin" /> : <Phone size={14} />}
+            >
+              Call Now
+            </Button>
+          </div>
+          {testCallResult && (
+            <div className={`flex items-center gap-2 text-xs rounded-[var(--radius-md)] px-3 py-2 ${
+              testCallResult.success
+                ? 'bg-[var(--status-success-surface)] text-success'
+                : 'bg-[var(--status-error-surface)] text-error'
+            }`}>
+              {testCallResult.success ? <CheckCircle2 size={14} /> : <X size={14} />}
+              {testCallResult.success
+                ? `Call placed! SID: ${testCallResult.callSid}`
+                : testCallResult.error}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search + Filters */}
       <div className="space-y-3">
@@ -276,6 +382,19 @@ export default function CallsPage() {
                   </div>
                 )}
 
+                {/* Transcribe button for calls with recording but no transcript */}
+                {call.recording_url && !call.transcript && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={transcribeMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                    onClick={() => transcribeMutation.mutate(call.id)}
+                    loading={transcribeMutation.isPending}
+                  >
+                    Transcribe Recording
+                  </Button>
+                )}
+
                 {call.task_id && call.task_title && (
                   <div>
                     <OverlineHeading>Linked Task</OverlineHeading>
@@ -305,9 +424,9 @@ export default function CallsPage() {
         {!isLoading && (!filteredCalls || filteredCalls.length === 0) && (
           <EmptyState
             icon={Phone}
-            title="No calls recorded yet"
-            description="Calls will appear here once telephony is connected"
-            tip="Configure Twilio in Settings to enable calling"
+            title="No calls yet"
+            description="Twilio is connected and ready. Place a test call or wait for incoming calls."
+            tip="Click 'Make Test Call' above to verify the connection"
           />
         )}
       </div>

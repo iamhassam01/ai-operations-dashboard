@@ -13,6 +13,7 @@ const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/tasks': 'Tasks',
   '/calls': 'Call History',
+  '/agent': 'Agent Chat',
   '/settings': 'Settings',
   '/notifications': 'Notifications',
 };
@@ -34,6 +35,16 @@ export function Header() {
     },
     staleTime: 30000,
   });
+
+  const { data: health } = useQuery<{ status: string; services: Record<string, { status: string }> }>({
+    queryKey: ['health'],
+    queryFn: () => fetch('/api/health').then((r) => r.json()),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+
+  const agentOnline = health?.services?.openclaw?.status === 'connected' || health?.services?.database?.status === 'connected';
+  const agentStatus = health ? (agentOnline ? 'Online' : 'Degraded') : 'Checking...';
 
   const pageTitle = pageTitles[pathname] || 'Dashboard';
   const userName = (settings?.user_name as string) || (settings?.business_name as string) || 'User';
@@ -65,10 +76,10 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Agent status — single authoritative source */}
+        {/* Agent status — live from health check */}
         <div className="hidden sm:flex items-center gap-1.5 mr-1 px-2 py-1 rounded-full bg-[var(--surface-secondary)]">
-          <StatusDot color="success" size="sm" pulse />
-          <span className="text-[10px] font-medium text-[var(--text-tertiary)]">Agent Online</span>
+          <StatusDot color={agentOnline ? 'success' : 'warning'} size="sm" pulse={agentOnline} />
+          <span className="text-[10px] font-medium text-[var(--text-tertiary)]">Agent {agentStatus}</span>
         </div>
 
         {/* Theme Toggle */}

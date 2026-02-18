@@ -59,3 +59,15 @@ logs/
 
 # Setup script
 setup-git.ps1
+
+# Test scripts & internal deploy utilities
+deploy/test*.sh
+deploy/test-*.sh
+deploy/seed_mock_data.sql
+deploy/seed.sql
+deploy/fix_voice_config.py
+deploy/update_voice_config.py
+deploy/workspace/scripts/
+
+# Reports & PDFs
+*.pdf

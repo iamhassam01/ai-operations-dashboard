@@ -1,8 +1,181 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
-const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
-const OPENCLAW_HOOK_TOKEN = process.env.OPENCLAW_HOOK_TOKEN || '';
+// ─── Background Task Processing ──────────────────────────────────────
+// After creating a task, this fires in the background to actually research
+// and work on it — making the agent truly agentic rather than just a chatbot.
+
+async function processTaskInBackground(taskId: string, conversationId: string) {
+  try {
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) return;
+
+    // Get task details
+    const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (taskRes.rows.length === 0) return;
+    const task = taskRes.rows[0];
+
+    // Update task to in_progress
+    await pool.query(
+      "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
+      [taskId]
+    );
+
+    // Log that we're starting work
+    await pool.query(
+      `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'pending')`,
+      ['task_research_started', JSON.stringify({ task_id: taskId, title: task.title })]
+    );
+
+    // Look for matching contacts in our database
+    const contactSearch = [];
+    if (task.contact_name) {
+      const res = await pool.query(
+        `SELECT * FROM contacts WHERE name ILIKE $1 LIMIT 5`,
+        [`%${task.contact_name}%`]
+      );
+      contactSearch.push(...res.rows);
+    }
+    if (task.contact_phone) {
+      const res = await pool.query(
+        `SELECT * FROM contacts WHERE phone_number = $1 LIMIT 1`,
+        [task.contact_phone]
+      );
+      contactSearch.push(...res.rows);
+    }
+
+    const contactContext = contactSearch.length > 0
+      ? `\nMatching contacts found in database:\n${contactSearch.map((c: { name: string; phone_number: string; company: string; notes: string }) => `- ${c.name}: ${c.phone_number}${c.company ? ` (${c.company})` : ''}${c.notes ? ` — ${c.notes}` : ''}`).join('\n')}`
+      : '\nNo matching contacts found in database.';
+
+    // Use GPT-4o to research and plan next steps
+    const researchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a research assistant for an AI operations agent. Your job is to research a task and provide actionable findings.
+
+Given a task, you should:
+1. Analyze what needs to be done
+2. Identify the key steps required
+3. Find relevant information (contacts, businesses, options, pricing, considerations)
+4. Provide a clear recommendation with next steps
+5. If a phone call would help, indicate who to call and why
+
+Be specific and practical. Provide real suggestions based on the task type.
+Keep your response concise but thorough (300-400 words max).
+
+IMPORTANT: At the end of your response, include a JSON block for the recommended next action:
+<next_action>{"needs_call": true/false, "call_to": "name or business", "call_phone": "+number or null", "call_purpose": "reason", "summary": "1-sentence summary of findings"}</next_action>`
+          },
+          {
+            role: 'user',
+            content: `Research this task and provide findings:\n\nTitle: ${task.title}\nType: ${task.type}\nPriority: ${task.priority}\nDescription: ${task.description || 'No description provided'}\nContact: ${task.contact_name || 'Not specified'}\nPhone: ${task.contact_phone || 'Not specified'}\nAddress: ${task.address || 'Not specified'}\nConstraints: ${task.constraints || 'None'}\nPreferred times: ${task.preferred_time_1 || 'Flexible'}${contactContext}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 800,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!researchResponse.ok) {
+      throw new Error(`OpenAI research failed: ${researchResponse.status}`);
+    }
+
+    const researchData = await researchResponse.json();
+    const researchContent = researchData.choices?.[0]?.message?.content || '';
+
+    // Parse next action recommendation
+    let nextAction = { needs_call: false, call_to: '', call_phone: '', call_purpose: '', summary: '' };
+    const nextActionMatch = researchContent.match(/<next_action>([\s\S]*?)<\/next_action>/);
+    if (nextActionMatch) {
+      try { nextAction = JSON.parse(nextActionMatch[1].trim()); } catch { /* skip */ }
+    }
+    const cleanResearch = researchContent.replace(/<next_action>[\s\S]*?<\/next_action>/, '').trim();
+
+    // Update task with research findings
+    const updatedDescription = `${task.description || ''}\n\n--- Agent Research ---\n${cleanResearch}`.trim();
+    await pool.query(
+      `UPDATE tasks SET description = $1, updated_at = NOW() WHERE id = $2`,
+      [updatedDescription, taskId]
+    );
+
+    // Add research findings as a message in the conversation
+    await pool.query(
+      `INSERT INTO messages (conversation_id, role, content, action_type, action_data)
+       VALUES ($1, 'assistant', $2, 'task_updated', $3)`,
+      [
+        conversationId,
+        `I've finished researching your task **"${task.title}"**. Here's what I found:\n\n${cleanResearch}${nextAction.needs_call ? `\n\n**Next step:** I recommend calling ${nextAction.call_to}${nextAction.call_phone ? ` at ${nextAction.call_phone}` : ''}. I'll create an approval request for this call — please approve it when you're ready.` : `\n\nI've updated the task with these findings. Let me know if you'd like me to take any further action.`}`,
+        JSON.stringify([{ action_type: 'task_updated', success: true, data: { task_id: taskId, title: task.title } }]),
+      ]
+    );
+
+    // If a call is recommended, auto-create approval
+    if (nextAction.needs_call) {
+      const phoneNumber = nextAction.call_phone || task.contact_phone || null;
+      const approvalResult = await pool.query(
+        `INSERT INTO approvals (task_id, action_type, status, notes)
+         VALUES ($1, 'make_call', 'pending', $2)
+         RETURNING id`,
+        [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`]
+      );
+
+      await pool.query(
+        `INSERT INTO notifications (type, title, message, related_task_id)
+         VALUES ('approval_required', $1, $2, $3)`,
+        [
+          `Approval needed: Call ${nextAction.call_to}`,
+          `Agent wants to call ${nextAction.call_to}${phoneNumber ? ` (${phoneNumber})` : ''} for task "${task.title}": ${nextAction.call_purpose}`,
+          taskId,
+        ]
+      );
+
+      // Update task to pending approval
+      await pool.query(
+        "UPDATE tasks SET status = 'pending_approval', updated_at = NOW() WHERE id = $1",
+        [taskId]
+      );
+
+      await pool.query(
+        `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+        ['auto_approval_created', JSON.stringify({ task_id: taskId, approval_id: approvalResult.rows[0].id, call_to: nextAction.call_to })]
+      );
+    }
+
+    // Create completion notification
+    await pool.query(
+      `INSERT INTO notifications (type, title, message, related_task_id)
+       VALUES ('task_update', $1, $2, $3)`,
+      [
+        `Research complete: ${task.title}`,
+        nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Ready for next steps.'}`,
+        taskId,
+      ]
+    );
+
+    // Log completion
+    await pool.query(
+      `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+      ['task_research_completed', JSON.stringify({ task_id: taskId, title: task.title, needs_call: nextAction.needs_call, summary: nextAction.summary })]
+    );
+
+  } catch (error) {
+    console.error('Background task processing error:', error);
+    await pool.query(
+      `INSERT INTO agent_logs (action, details, status, error_message) VALUES ($1, $2, 'failure', $3)`,
+      ['task_research_failed', JSON.stringify({ task_id: taskId }), error instanceof Error ? error.message : 'Unknown error']
+    ).catch(() => {});
+  }
+}
 
 // Build system context from the database so the agent knows what's going on
 async function buildSystemContext(): Promise<string> {
@@ -60,25 +233,35 @@ async function buildSystemContext(): Promise<string> {
     ).join('\n')}`
     : '';
 
-  return `You are Bob, an AI operations assistant. On phone calls you introduce yourself as Mr. Ermakov.
+  return `You are Bob, an AI operations assistant with REAL agentic capabilities. On phone calls you introduce yourself as Mr. Ermakov.
 You work for ${settings.business_name || 'Home'}, managed by Ivan Korn.
 Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 
+IMPORTANT — YOU ARE A REAL AGENT, NOT JUST A CHATBOT:
+When you create a task, your backend system AUTOMATICALLY starts working on it in real-time:
+- It researches the task using AI (finds contacts, options, pricing, recommendations)
+- It updates the task with research findings
+- It creates approval requests when actions need user permission (like making calls)
+- It sends notifications when work is done
+You do NOT need to pretend or say "I'll look into this" — you actually DO it. The research happens automatically after you create a task.
+
 Your capabilities:
-1. Create tasks — when the user asks you to do something (book hotel, order food, find a plumber, etc.), create a task with all relevant details.
-2. Research — look up information, find contacts, compare options for a task.
-3. Make calls — call businesses, hotels, restaurants, service providers on behalf of the user. You MUST get approval before making any call.
-4. Manage approvals — present plans to the user and wait for their approval before executing.
-5. Track progress — show the user what you've done, what's in progress, what's waiting.
-6. Remember context — store important facts about the user's preferences, past decisions, and ongoing situations.
+1. Create tasks — when the user asks you to do something (book hotel, order food, find a plumber, etc.), create a task with all relevant details. Your system will AUTOMATICALLY start researching it.
+2. Make calls — call businesses, hotels, restaurants, service providers on behalf of the user via Twilio. You MUST get approval before making any call. When the user approves, the call is actually placed.
+3. Manage approvals — present plans to the user and wait for their approval before executing. Approval requests appear in the dashboard.
+4. Track progress — show the user what you've done, what's in progress, what's waiting. Reference task IDs.
+5. Remember context — store important facts about the user's preferences, past decisions, and ongoing situations.
 
 RULES:
-- NEVER take an action without asking for approval first. Always present your plan, then wait for the user to approve.
-- When creating a task, include all details: what needs to be done, contact info if available, time preferences, constraints.
+- When the user asks you to do something, create a task immediately with all the details. Your system will automatically research it and report back.
+- NEVER take a call action without asking for approval first. Create an approval request and let the user approve it from the dashboard.
+- When creating a task, include ALL known details: what needs to be done, contact info if available, time preferences, constraints.
 - When the user's request is unclear, ask specific clarifying questions. Don't guess.
 - Keep your responses conversational and direct. No corporate speak.
 - When you determine an action is needed, include it in your response using the action format below.
 - Refer to existing tasks and calls when relevant — the user can see them in the dashboard.
+- Be proactive: suggest next steps, offer to create tasks, remind about pending approvals.
+- When a task is already in_progress, tell the user it's being worked on and they'll get a notification when research is done.
 
 ACTION FORMAT — when you need to take an action, include exactly one of these JSON blocks in your response, wrapped in <action> tags:
 
@@ -164,6 +347,13 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
          VALUES ('task_update', $1, $2, $3)`,
         [`Task created: ${task.title}`, `Created via chat conversation`, task.id]
       );
+
+      // 🚀 Fire-and-forget: start background processing for this task
+      // This makes the agent truly agentic — it will research the task,
+      // find contacts, propose next steps, and create approvals automatically.
+      processTaskInBackground(task.id, conversationId).catch((err) => {
+        console.error('Background task processing failed:', err);
+      });
 
       results.push({ action_type: 'task_created', success: true, data: { task_id: task.id, title: task.title } });
       break;
@@ -269,36 +459,45 @@ export async function POST(
       ...history.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
     ];
 
-    // Send to OpenClaw gateway
+    // Call the LLM directly via OpenAI API
     let assistantContent: string;
-    try {
-      const openclawResponse = await fetch(`${OPENCLAW_URL}/hooks/agent`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${OPENCLAW_HOOK_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: message.trim(),
-          name: 'Chat message',
-          context: {
-            messages: llmMessages,
-            conversation_id: conversationId,
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiKey}`,
+            'Content-Type': 'application/json',
           },
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: llmMessages,
+            temperature: 0.7,
+            max_tokens: 1500,
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
 
-      if (openclawResponse.ok) {
-        const responseData = await openclawResponse.json();
-        assistantContent = responseData.response || responseData.message || responseData.content || '';
-      } else {
-        // If OpenClaw is not responding properly, fall back to a direct acknowledgment
-        assistantContent = await generateFallbackResponse(message.trim(), systemContext, history);
+        if (response.ok) {
+          const data = await response.json();
+          assistantContent = data.choices?.[0]?.message?.content || '';
+        } else {
+          const errData = await response.json().catch(() => null);
+          const errMsg = errData?.error?.message || `HTTP ${response.status}`;
+          console.error('OpenAI API error:', errMsg);
+          if (errData?.error?.code === 'insufficient_quota') {
+            assistantContent = "I'm currently unable to process requests — my API quota has been exceeded. Please check the OpenAI billing dashboard and add credits to resume. Your message has been saved.";
+          } else {
+            assistantContent = await generateFallbackResponse(message.trim(), systemContext);
+          }
+        }
+      } catch (err) {
+        console.error('OpenAI API fetch error:', err);
+        assistantContent = await generateFallbackResponse(message.trim(), systemContext);
       }
-    } catch {
-      // OpenClaw unreachable — use fallback
-      assistantContent = await generateFallbackResponse(message.trim(), systemContext, history);
+    } else {
+      assistantContent = "I'm not configured yet — the OPENAI_API_KEY environment variable is missing. Please add it to the ecosystem config and restart PM2.";
     }
 
     if (!assistantContent) {
@@ -367,52 +566,17 @@ export async function POST(
     });
   } catch (error) {
     console.error('Chat send error:', error);
-    return NextResponse.json({ error: 'Failed to send message' }, { status: 500 });
+    const detail = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Failed to send message', detail }, { status: 500 });
   }
 }
 
-// Fallback response when OpenClaw gateway is unreachable
-// This uses direct OpenAI API call as a backup
+// Fallback response when OpenAI API is unreachable
 async function generateFallbackResponse(
   userMessage: string,
-  systemContext: string,
-  history: Array<{ role: string; content: string }>
+  _systemContext: string,
 ): Promise<string> {
-  // Try direct OpenAI if key is available
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (openaiKey) {
-    try {
-      const messages = [
-        { role: 'system', content: systemContext },
-        ...history.map((m) => ({ role: m.role, content: m.content })),
-        { role: 'user', content: userMessage },
-      ];
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openaiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages,
-          temperature: 0.7,
-          max_tokens: 1500,
-        }),
-        signal: AbortSignal.timeout(25000),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices?.[0]?.message?.content || '';
-      }
-    } catch {
-      // OpenAI also failed
-    }
-  }
-
-  // Last resort — pattern-match the message to provide a useful static response
+  // Pattern-match the message to provide a useful static response
   const lower = userMessage.toLowerCase();
   if (lower.includes('task') || lower.includes('create') || lower.includes('do ')) {
     return `I understand you want me to help with something. Let me create a task for this.\n\n<action>{"type":"create_task","title":"${userMessage.slice(0, 80)}","task_type":"other","priority":"medium","description":"${userMessage}"}</action>\n\nI've created a task for this. I'll need your approval before taking any further action. What details should I add?`;
