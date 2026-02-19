@@ -66,7 +66,7 @@ export function Header() {
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 text-sm">
           <Link href="/" className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
-            Home
+            Gloura
           </Link>
           <ChevronRight size={14} className="text-[var(--text-tertiary)]" />
           <span className="font-medium text-[var(--text-primary)]">

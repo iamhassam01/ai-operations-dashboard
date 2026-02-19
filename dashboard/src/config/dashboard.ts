@@ -1,8 +1,8 @@
 import { LayoutDashboard, ListTodo, Phone, Settings, Bell, MessageSquareText } from 'lucide-react';
 
 export const dashboardConfig = {
-  name: 'AI Operations Dashboard',
-  description: 'Autonomous AI Agent Management',
+  name: 'Gloura Dashboard',
+  description: 'Gloura — AI Operations',
   agent: {
     name: 'Bob',
     phoneIdentity: 'Mr. Ermakov',

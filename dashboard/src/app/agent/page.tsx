@@ -858,7 +858,7 @@ export default function AgentChatPage() {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-[var(--text-primary)] truncate">Bob</p>
-              <p className="text-[10px] text-[var(--text-tertiary)]">AI Operations Agent</p>
+              <p className="text-[10px] text-[var(--text-tertiary)]">Gloura Agent</p>
             </div>
           </div>
 
@@ -879,7 +879,7 @@ export default function AgentChatPage() {
             <EmptyState
               icon={MessageSquare}
               title="Start a conversation"
-              description="Talk to Bob, your AI operations agent. He can create tasks, make calls, do research, and manage your operations."
+              description="Talk to Bob, your Gloura agent. He can create tasks, make calls, do research, and manage your operations."
             />
           ) : loadingMessages ? (
             <div className="flex justify-center py-12">

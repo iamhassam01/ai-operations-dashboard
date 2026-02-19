@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Bot, ChevronsLeft, ChevronsRight, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { dashboardConfig } from '@/config/dashboard';
@@ -36,13 +37,13 @@ export function Sidebar() {
       {/* Logo / Brand + Collapse Toggle */}
       <div className={`flex items-center border-b border-[var(--sidebar-border)] ${isCollapsed ? 'justify-center px-3 py-5' : 'justify-between px-5 py-5'}`}>
         <div className={`flex items-center ${isCollapsed ? '' : 'gap-3'}`}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--sidebar-active)]">
-            <Bot size={20} className="text-[var(--sidebar-accent)]" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-white overflow-hidden">
+            <Image src="/gloura-logo.jpeg" alt="Gloura" width={36} height={36} className="object-contain" />
           </div>
           {!isCollapsed && (
             <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-[var(--sidebar-text-active)] truncate">OpsBoard</h1>
-              <p className="text-[10px] text-[var(--sidebar-text)] truncate">AI Operations</p>
+              <h1 className="text-sm font-semibold text-[var(--sidebar-text-active)] truncate">Gloura</h1>
+              <p className="text-[10px] text-[var(--sidebar-text)] truncate">AI Dashboard</p>
             </div>
           )}
         </div>

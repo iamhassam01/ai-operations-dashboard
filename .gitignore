@@ -71,3 +71,8 @@ deploy/workspace/scripts/
 
 # Reports & PDFs
 *.pdf
+# Office documents (not tracked)
+*.docx
+
+# Ignore root duplicate logo (keep dashboard/public/gloura-logo.jpeg)
+/gloura-logo.jpeg

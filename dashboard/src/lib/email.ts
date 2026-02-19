@@ -72,7 +72,7 @@ export async function sendNotificationEmail(payload: EmailPayload): Promise<bool
     });
 
     await transporter.sendMail({
-      from: `"AI Operations Dashboard" <${smtpFrom}>`,
+      from: `"Gloura Dashboard" <${smtpFrom}>`,
       to: payload.to,
       cc: payload.cc || undefined,
       subject: payload.subject,

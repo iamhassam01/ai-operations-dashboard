@@ -5,8 +5,8 @@ import { Header } from "@/components/Header";
 import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "AI Operations Dashboard | Home",
-  description: "Autonomous AI Operations Agent Dashboard for Home",
+  title: "Gloura Dashboard",
+  description: "Gloura — AI Operations Dashboard",
 };
 
 export default function RootLayout({
