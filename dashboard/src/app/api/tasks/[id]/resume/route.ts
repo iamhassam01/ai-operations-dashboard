@@ -140,7 +140,7 @@ async function processTask(taskId: string) {
     : '';
 
   // ── Step 1: Web Search ────────────────────────────────────────────
-  const searchQuery = `${task.title}${task.description ? ' ' + task.description.slice(0, 150) : ''} latest 2025`;
+  const searchQuery = `${task.title}${task.description ? ' ' + task.description.slice(0, 150) : ''} latest ${new Date().getFullYear()}`;
   const webResults = await webSearch(searchQuery, openaiKey);
 
   if (webResults) {

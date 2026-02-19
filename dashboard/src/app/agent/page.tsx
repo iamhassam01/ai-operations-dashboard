@@ -600,6 +600,7 @@ export default function AgentChatPage() {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { isRecording, duration, audioBlob, startRecording, stopRecording, cancelRecording, clearAudio } = useVoiceRecorder();
@@ -792,6 +793,32 @@ export default function AgentChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-73px)] -m-4 md:-m-6">
+      {/* Mobile conversation sidebar — slide-out overlay */}
+      {showMobileSidebar && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowMobileSidebar(false)}
+          />
+          <div className="relative w-72 max-w-[80vw] animate-in slide-in-from-left duration-200">
+            <ConversationList
+              conversations={conversations}
+              activeId={activeConversationId}
+              onSelect={(id) => {
+                setActiveConversationId(id);
+                setShowMobileSidebar(false);
+              }}
+              onNew={() => {
+                createConversation.mutate();
+                setShowMobileSidebar(false);
+              }}
+              onRename={renameConversation}
+              onDelete={deleteConversation}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Conversation sidebar — desktop */}
       <div className={`hidden md:block transition-all duration-200 ${showSidebar ? 'w-72' : 'w-0 overflow-hidden'}`}>
         {showSidebar && (
@@ -817,19 +844,9 @@ export default function AgentChatPage() {
             <ChevronRight size={16} className={`transition-transform ${showSidebar ? 'rotate-180' : ''}`} />
           </button>
 
-          {/* Mobile conversation picker */}
+          {/* Mobile conversation picker — opens slide-out sidebar */}
           <button
-            onClick={() => {
-              // On mobile, cycle through creating new or show a simple dropdown
-              if (conversations.length === 0) {
-                createConversation.mutate();
-              } else {
-                // Toggle between conversations on mobile
-                const currentIdx = conversations.findIndex((c) => c.id === activeConversationId);
-                const nextIdx = (currentIdx + 1) % conversations.length;
-                setActiveConversationId(conversations[nextIdx].id);
-              }
-            }}
+            onClick={() => setShowMobileSidebar(true)}
             className="md:hidden flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
           >
             <MessageSquare size={16} />
@@ -936,7 +953,7 @@ export default function AgentChatPage() {
                     <button
                       onClick={sendMessage}
                       disabled={isSending}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--interactive-primary)] text-white hover:bg-[var(--interactive-primary-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--interactive-primary)] text-white hover:bg-[var(--interactive-primary-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                     </button>
@@ -944,7 +961,7 @@ export default function AgentChatPage() {
                     <button
                       onClick={startRecording}
                       disabled={isSending}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--surface-secondary)] text-[var(--text-secondary)] border border-[var(--border-default)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       title="Record voice message"
                     >
                       <Mic size={16} />
