@@ -23,6 +23,12 @@ import {
   Check,
   X,
   MoreVertical,
+  Search,
+  Globe,
+  FileCheck,
+  ShieldCheck,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/Badge';
@@ -45,7 +51,7 @@ interface Message {
 interface ActionResult {
   action_type: string;
   success: boolean;
-  data?: { task_id?: string; title?: string; approval_id?: string };
+  data?: { task_id?: string; title?: string; approval_id?: string; detail?: string };
   error?: string;
 }
 
@@ -150,6 +156,12 @@ const actionIcons: Record<string, typeof CheckCircle2> = {
   memory_stored: Brain,
   task_updated: CheckCircle2,
   call_initiated: Phone,
+  research_started: Search,
+  web_search_complete: Globe,
+  research_complete: FileCheck,
+  approval_created: ShieldCheck,
+  status_changed: RefreshCw,
+  research_failed: AlertCircle,
 };
 
 const actionLabels: Record<string, string> = {
@@ -158,15 +170,31 @@ const actionLabels: Record<string, string> = {
   memory_stored: 'Memory saved',
   task_updated: 'Task updated',
   call_initiated: 'Call started',
+  research_started: 'Research started',
+  web_search_complete: 'Web results found',
+  research_complete: 'Research complete',
+  approval_created: 'Approval created',
+  status_changed: 'Status updated',
+  research_failed: 'Research failed',
+};
+
+const actionColors: Record<string, string> = {
+  research_started: 'text-[var(--text-accent)]',
+  web_search_complete: 'text-info',
+  research_complete: 'text-success',
+  approval_created: 'text-warning',
+  research_failed: 'text-error',
 };
 
 function ActionCard({ result }: { result: ActionResult }) {
   const Icon = actionIcons[result.action_type] || CheckCircle2;
   const label = actionLabels[result.action_type] || result.action_type;
+  const iconColor = actionColors[result.action_type] || (result.success ? 'text-success' : 'text-error');
+  const detail = result.data?.detail as string | undefined;
 
   return (
     <div className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-secondary)] px-3 py-2 mt-2">
-      <div className={`mt-0.5 ${result.success ? 'text-success' : 'text-error'}`}>
+      <div className={`mt-0.5 ${iconColor}`}>
         {result.success ? <Icon size={15} /> : <XCircle size={15} />}
       </div>
       <div className="min-w-0 flex-1">
@@ -174,12 +202,18 @@ function ActionCard({ result }: { result: ActionResult }) {
         {result.data?.title && (
           <p className="text-xs text-[var(--text-secondary)] truncate">{result.data.title}</p>
         )}
+        {detail && (
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">{detail}</p>
+        )}
         {result.error && (
           <p className="text-xs text-error">{result.error}</p>
         )}
       </div>
-      {result.success && (
+      {result.success && !['research_started', 'web_search_complete'].includes(result.action_type) && (
         <Badge variant="success" dot>Done</Badge>
+      )}
+      {['research_started', 'web_search_complete'].includes(result.action_type) && (
+        <Badge variant="accent" dot>Working</Badge>
       )}
     </div>
   );

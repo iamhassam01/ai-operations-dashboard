@@ -6,12 +6,25 @@ import pool from '@/lib/db';
 // real web search + GPT-4o analysis, updates findings, creates
 // approvals only when genuinely needed, and posts progress to chat.
 
-// Helper: post a progress message to the originating conversation
-async function postProgress(conversationId: string | null, content: string) {
+// Helper: post a structured activity card to the originating conversation
+async function postActivity(
+  conversationId: string | null,
+  actionType: string,
+  title: string,
+  detail?: string,
+  taskId?: string,
+) {
   if (!conversationId) return;
   await pool.query(
-    `INSERT INTO messages (conversation_id, role, content) VALUES ($1, 'assistant', $2)`,
-    [conversationId, content],
+    `INSERT INTO messages (conversation_id, role, content, action_type, action_data, related_task_id)
+     VALUES ($1, 'action', $2, $3, $4, $5)`,
+    [
+      conversationId,
+      title,
+      actionType,
+      JSON.stringify({ action_type: actionType, success: true, data: { title, detail: detail || '' } }),
+      taskId || null,
+    ],
   );
 }
 
@@ -103,7 +116,7 @@ async function processTask(taskId: string) {
     [`Working on: ${task.title}`, `Agent is now researching and processing this task...`, taskId],
   );
 
-  await postProgress(conversationId, `🔍 Resuming work on **"${task.title}"**. Searching the web for the latest information...`);
+  await postActivity(conversationId, 'research_started', `Resuming research: ${task.title}`, 'Searching the web for the latest information...', taskId);
 
   // Look for matching contacts
   const contactSearch = [];
@@ -131,7 +144,7 @@ async function processTask(taskId: string) {
   const webResults = await webSearch(searchQuery, openaiKey);
 
   if (webResults) {
-    await postProgress(conversationId, `🌐 Found web results for **"${task.title}"**. Analyzing and preparing structured report...`);
+    await postActivity(conversationId, 'web_search_complete', 'Web results found', `Analyzing findings for "${task.title}"...`, taskId);
   }
 
   // ── Step 2: Analyze with GPT-4o ──────────────────────────────────
@@ -202,13 +215,17 @@ Based on all available information, provide a thorough, well-formatted research 
       ? `\n\n**Next step:** I recommend calling **${nextAction.call_to}**${nextAction.call_phone ? ` at ${nextAction.call_phone}` : ''}. I've created an approval request — please approve it when you're ready.`
       : `\n\nI've updated the task with these findings. Let me know if you'd like me to take any further action.`;
 
+    // Post structured activity card for completion
+    await postActivity(conversationId, 'research_complete', `Research complete: ${task.title}`, nextAction.summary || 'Findings have been added to the task.', taskId);
+
+    // Post full research as assistant message
     await pool.query(
-      `INSERT INTO messages (conversation_id, role, content, action_type, action_data)
-       VALUES ($1, 'assistant', $2, 'task_updated', $3)`,
+      `INSERT INTO messages (conversation_id, role, content, related_task_id)
+       VALUES ($1, 'assistant', $2, $3)`,
       [
         conversationId,
-        `✅ Research complete for **"${task.title}"**:\n\n${cleanResearch}${callNote}`,
-        JSON.stringify([{ action_type: 'task_updated', success: true, data: { task_id: taskId, title: task.title } }]),
+        `Here are the findings for **"${task.title}"**:\n\n${cleanResearch}${callNote}`,
+        taskId,
       ],
     );
   }
@@ -233,10 +250,22 @@ Based on all available information, provide a thorough, well-formatted research 
       ],
     );
 
+    // Post approval activity to chat
+    await postActivity(
+      conversationId,
+      'approval_created',
+      `Approval needed: Call ${nextAction.call_to}`,
+      `${nextAction.call_purpose}${phoneNumber ? ` — ${phoneNumber}` : ''}. Approve from the dashboard to proceed.`,
+      taskId,
+    );
+
     await pool.query(
       "UPDATE tasks SET status = 'pending_approval', updated_at = NOW() WHERE id = $1",
       [taskId],
     );
+
+    // Post status change to chat
+    await postActivity(conversationId, 'status_changed', `Task status: Pending Approval`, `"${task.title}" is waiting for your approval.`, taskId);
 
     await pool.query(
       `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,

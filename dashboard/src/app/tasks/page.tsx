@@ -21,6 +21,28 @@ function titleCase(str: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function stripMarkdown(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/<next_action>[\s\S]*?<\/next_action>/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/_(.*?)_/g, '$1')
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')
+    .replace(/^\|.*\|$/gm, '')
+    .replace(/^[-|:\s]+$/gm, '')
+    .replace(/^---+$/gm, '')
+    .replace(/^[*-]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[🔍📋✅🌐⚡🚀💡📊📌🎯]/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const min = Math.floor(diff / 60000);
@@ -314,7 +336,7 @@ function TasksPageInner() {
                     className="mt-0.5 text-[var(--text-secondary)] line-clamp-1"
                     style={{ fontSize: 'var(--text-body-small)' }}
                   >
-                    {task.description}
+                    {stripMarkdown(task.description)}
                   </p>
                 )}
                 <div

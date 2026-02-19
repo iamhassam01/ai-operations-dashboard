@@ -6,11 +6,24 @@ import pool from '@/lib/db';
 // and work on it — using real web search, smart call decisions, and
 // real-time progress updates to the conversation.
 
-// Helper: post a progress message into the conversation
-async function postProgress(conversationId: string, content: string) {
+// Helper: post a structured activity card into the conversation (not emoji text)
+async function postActivity(
+  conversationId: string,
+  actionType: string,
+  title: string,
+  detail?: string,
+  taskId?: string,
+) {
   await pool.query(
-    `INSERT INTO messages (conversation_id, role, content) VALUES ($1, 'assistant', $2)`,
-    [conversationId, content],
+    `INSERT INTO messages (conversation_id, role, content, action_type, action_data, related_task_id)
+     VALUES ($1, 'action', $2, $3, $4, $5)`,
+    [
+      conversationId,
+      title,
+      actionType,
+      JSON.stringify({ action_type: actionType, success: true, data: { title, detail: detail || '' } }),
+      taskId || null,
+    ],
   );
 }
 
@@ -98,7 +111,7 @@ async function processTaskInBackground(taskId: string, conversationId: string) {
     );
 
     // Post progress: starting
-    await postProgress(conversationId, `🔍 Starting research on **"${task.title}"**... I'll search the web for the latest information and report back.`);
+    await postActivity(conversationId, 'research_started', `Researching "${task.title}"`, 'Searching the web for the latest information...', taskId);
 
     // Look for matching contacts in our database
     const contactSearch = [];
@@ -126,7 +139,7 @@ async function processTaskInBackground(taskId: string, conversationId: string) {
     const webResults = await webSearch(searchQuery, openaiKey);
 
     if (webResults) {
-      await postProgress(conversationId, `🌐 Found web results for **"${task.title}"**. Analyzing and preparing a structured report...`);
+      await postActivity(conversationId, 'web_search_complete', 'Web results found', `Analyzing findings for "${task.title}"...`, taskId);
     }
 
     // ── Step 2: Analyze with GPT-4o ──────────────────────────────────
@@ -196,13 +209,17 @@ Based on all available information, provide a thorough, well-formatted research 
       ? `\n\n**Next step:** I recommend calling **${nextAction.call_to}**${nextAction.call_phone ? ` at ${nextAction.call_phone}` : ''}. I've created an approval request — please approve it when you're ready.`
       : `\n\nI've updated the task with these findings. Let me know if you'd like me to take any further action.`;
 
+    // Post a structured activity card for the completion event
+    await postActivity(conversationId, 'research_complete', `Research complete: ${task.title}`, nextAction.summary || 'Findings have been added to the task.', taskId);
+
+    // Post the full research as an assistant message so user can read it in chat
     await pool.query(
-      `INSERT INTO messages (conversation_id, role, content, action_type, action_data)
-       VALUES ($1, 'assistant', $2, 'task_updated', $3)`,
+      `INSERT INTO messages (conversation_id, role, content, related_task_id)
+       VALUES ($1, 'assistant', $2, $3)`,
       [
         conversationId,
-        `✅ Research complete for **"${task.title}"**:\n\n${cleanResearch}${callNote}`,
-        JSON.stringify([{ action_type: 'task_updated', success: true, data: { task_id: taskId, title: task.title } }]),
+        `Here are the findings for **"${task.title}"**:\n\n${cleanResearch}${callNote}`,
+        taskId,
       ],
     );
 
@@ -226,10 +243,22 @@ Based on all available information, provide a thorough, well-formatted research 
         ],
       );
 
+      // Post approval creation activity to chat
+      await postActivity(
+        conversationId,
+        'approval_created',
+        `Approval needed: Call ${nextAction.call_to}`,
+        `${nextAction.call_purpose}${phoneNumber ? ` — ${phoneNumber}` : ''}. Approve from the dashboard to proceed.`,
+        taskId,
+      );
+
       await pool.query(
         "UPDATE tasks SET status = 'pending_approval', updated_at = NOW() WHERE id = $1",
         [taskId],
       );
+
+      // Post status change to chat
+      await postActivity(conversationId, 'status_changed', `Task status: Pending Approval`, `"${task.title}" is waiting for your approval.`, taskId);
 
       await pool.query(
         `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
@@ -255,6 +284,10 @@ Based on all available information, provide a thorough, well-formatted research 
 
   } catch (error) {
     console.error('Background task processing error:', error);
+    // Post failure to chat so user knows
+    try {
+      await postActivity(conversationId, 'research_failed', 'Research encountered an issue', 'The task will be retried. You can also click "Continue" on the task to retry.', taskId);
+    } catch { /* ignore secondary error */ }
     await pool.query(
       `INSERT INTO agent_logs (action, details, status, error_message) VALUES ($1, $2, 'failure', $3)`,
       ['task_research_failed', JSON.stringify({ task_id: taskId }), error instanceof Error ? error.message : 'Unknown error'],
@@ -299,9 +332,27 @@ async function buildSystemContext(): Promise<string> {
 
   const activeTasks = tasksRes.rows;
   const taskBlock = activeTasks.length > 0
-    ? `\nActive tasks:\n${activeTasks.map((t: { id: string; title: string; status: string; type: string; priority: string; contact_name: string; address: string; description: string }) =>
-      `- "${t.title}" (${t.type}, ${t.status}, priority: ${t.priority}${t.contact_name ? `, contact: ${t.contact_name}` : ''}${t.address ? `, address: ${t.address}` : ''}${t.description && t.description.includes('## 🔍 Research Findings') ? ' — ✅ research completed' : t.status === 'in_progress' ? ' — 🔍 researching now...' : ''}) ID: ${t.id}`
-    ).join('\n')}`
+    ? `\nActive tasks:\n${activeTasks.map((t: { id: string; title: string; status: string; type: string; priority: string; contact_name: string; address: string; description: string }) => {
+      const hasResearch = t.description && t.description.includes('## 🔍 Research Findings');
+      const isResearching = t.status === 'in_progress';
+      let statusNote = '';
+      if (hasResearch) statusNote = ' — research completed';
+      else if (isResearching) statusNote = ' — researching now...';
+      
+      // Include a snippet of research findings so the agent can reference them
+      let findingsSnippet = '';
+      if (hasResearch && t.description) {
+        const findingsStart = t.description.indexOf('## 🔍 Research Findings');
+        if (findingsStart !== -1) {
+          const findings = t.description.slice(findingsStart + 24, findingsStart + 600)
+            .replace(/<next_action>[\s\S]*?<\/next_action>/g, '')
+            .trim();
+          findingsSnippet = `\n    Research summary: ${findings}...`;
+        }
+      }
+      
+      return `- "${t.title}" (${t.type}, ${t.status}, priority: ${t.priority}${t.contact_name ? `, contact: ${t.contact_name}` : ''}${t.address ? `, address: ${t.address}` : ''}${statusNote}) ID: ${t.id}${findingsSnippet}`;
+    }).join('\n')}`
     : '\nNo active tasks.';
 
   const recentCalls = callsRes.rows;
