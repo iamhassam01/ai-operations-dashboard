@@ -5,6 +5,7 @@ import { X, ArrowLeft, PhoneIncoming, PhoneOutgoing, CheckCircle, XCircle, Pause
 import { Drawer } from '@/components/ui/Drawer';
 import { Badge, StatusDot } from '@/components/ui/Badge';
 import { OverlineHeading } from '@/components/ui/OverlineHeading';
+import { renderMarkdown } from '@/lib/markdown';
 import { toast } from 'sonner';
 
 interface TaskDetail {
@@ -117,6 +118,7 @@ export function TaskDetailDrawer({
     queryKey: ['task-detail', taskId],
     queryFn: () => fetch(`/api/tasks/${taskId}`).then((r) => r.json()),
     enabled: !!taskId,
+    refetchInterval: 5000,
   });
 
   const { data: calls } = useQuery<Call[]>({
@@ -255,12 +257,11 @@ export function TaskDetailDrawer({
           {task.description && (
             <div>
               <OverlineHeading>Description</OverlineHeading>
-              <p
-                className="mt-2 text-[var(--text-secondary)]"
+              <div
+                className="chat-content mt-2 text-[var(--text-secondary)]"
                 style={{ fontSize: 'var(--text-body-small)', lineHeight: '1.6' }}
-              >
-                {task.description}
-              </p>
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(task.description) }}
+              />
             </div>
           )}
 

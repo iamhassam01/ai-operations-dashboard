@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { renderMarkdown } from '@/lib/markdown';
 
 interface Message {
   id: string;
@@ -75,80 +76,6 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-// ─── Markdown Renderer ───────────────────────────────────────────────
-
-function renderMarkdown(text: string): string {
-  if (!text) return '';
-  let html = text;
-
-  // Escape HTML entities for safety
-  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  // Code blocks (``` ... ```)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
-    const label = lang ? `<span class="chat-code-lang">${lang}</span>` : '';
-    return `<div class="chat-code-block">${label}<pre><code>${code.trim()}</code></pre></div>`;
-  });
-
-  // Inline code
-  html = html.replace(/`([^`\n]+)`/g, '<code class="chat-inline-code">$1</code>');
-
-  // Headers
-  html = html.replace(/^### (.+)$/gm, '<h4 class="chat-h4">$1</h4>');
-  html = html.replace(/^## (.+)$/gm, '<h3 class="chat-h3">$1</h3>');
-  html = html.replace(/^# (.+)$/gm, '<h2 class="chat-h2">$1</h2>');
-
-  // Bold
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-
-  // Italic
-  html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
-  html = html.replace(/(?<!_)_([^_\n]+)_(?!_)/g, '<em>$1</em>');
-
-  // Strikethrough
-  html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-  // Horizontal rule
-  html = html.replace(/^---$/gm, '<hr class="chat-hr"/>');
-
-  // Ordered lists
-  html = html.replace(/(?:^|\n)((?:\d+\.\s+.+\n?)+)/g, (_m, block) => {
-    const items = block.trim().split('\n')
-      .map((l: string) => l.replace(/^\d+\.\s+/, '').trim())
-      .filter(Boolean)
-      .map((item: string) => `<li>${item}</li>`).join('');
-    return `<ol class="chat-ol">${items}</ol>`;
-  });
-
-  // Unordered lists
-  html = html.replace(/(?:^|\n)((?:[-*]\s+.+\n?)+)/g, (_m, block) => {
-    const items = block.trim().split('\n')
-      .map((l: string) => l.replace(/^[-*]\s+/, '').trim())
-      .filter(Boolean)
-      .map((item: string) => `<li>${item}</li>`).join('');
-    return `<ul class="chat-ul">${items}</ul>`;
-  });
-
-  // Blockquotes
-  html = html.replace(/(?:^|\n)((?:&gt;\s?.+\n?)+)/g, (_m, block) => {
-    const content = block.trim().split('\n')
-      .map((l: string) => l.replace(/^&gt;\s?/, '')).join('<br/>');
-    return `<blockquote class="chat-blockquote">${content}</blockquote>`;
-  });
-
-  // Double newlines → paragraph breaks
-  html = html.replace(/\n\n+/g, '</p><p class="chat-p">');
-  // Single newlines → line breaks
-  html = html.replace(/\n/g, '<br/>');
-
-  if (!/^<(h[2-4]|div|ol|ul|blockquote|hr|p)/.test(html)) {
-    html = `<p class="chat-p">${html}</p>`;
-  }
-
-  return html;
 }
 
 // ─── Voice Recording Hook ─────────────────────────────────────────────

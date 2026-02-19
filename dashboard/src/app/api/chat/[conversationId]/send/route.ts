@@ -3,7 +3,77 @@ import pool from '@/lib/db';
 
 // ─── Background Task Processing ──────────────────────────────────────
 // After creating a task, this fires in the background to actually research
-// and work on it — making the agent truly agentic rather than just a chatbot.
+// and work on it — using real web search, smart call decisions, and
+// real-time progress updates to the conversation.
+
+// Helper: post a progress message into the conversation
+async function postProgress(conversationId: string, content: string) {
+  await pool.query(
+    `INSERT INTO messages (conversation_id, role, content) VALUES ($1, 'assistant', $2)`,
+    [conversationId, content],
+  );
+}
+
+// Helper: perform web search using OpenAI Responses API with web_search tool
+async function webSearch(query: string, openaiKey: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        tools: [{ type: 'web_search_preview' }],
+        input: query,
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const msg = data.output?.find((o: any) => o.type === 'message');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const textBlock = msg?.content?.find((c: any) => c.type === 'output_text');
+    return textBlock?.text || null;
+  } catch {
+    return null;
+  }
+}
+
+// The research system prompt — instructs GPT-4o on how to analyze findings
+const RESEARCH_SYSTEM_PROMPT = `You are a thorough research assistant for an AI executive assistant called Bob. Your job is to analyze a task and any web search results, then provide well-formatted, actionable findings.
+
+OUTPUT FORMAT RULES:
+- Use proper markdown with ## for main sections and ### for subsections
+- Use **bold** for important terms, prices, and names
+- Use bullet lists for key points
+- Use numbered lists for step-by-step actions
+- When comparing options/services/products, ALWAYS create a markdown table:
+  | Option | Provider | Price | Key Features | Availability |
+  |--------|----------|-------|--------------|--------------|
+- After the table, provide a **Recommended Option** section with clear rationale
+- Keep the response focused and actionable (400-600 words max excluding the JSON block)
+
+CALL DECISION RULES — THINK CAREFULLY:
+RECOMMEND a phone call ONLY when:
+- Task explicitly requires booking, reserving, or scheduling with a specific business or person
+- Task requires negotiating, asking custom questions, or getting a quote from a specific vendor
+- Task involves following up with a named contact who has a phone number
+- Task type is "call", "booking", or "cancellation" AND a specific business/person is identified
+
+DO NOT recommend a call when:
+- Task is research, information gathering, comparison, or analysis
+- Task asks for recommendations, suggestions, or exploration of a topic
+- No specific business, person, or phone number has been identified
+- Task type is "inquiry" or "other" without a clear call target
+- The needed information can be found online without calling
+
+At the end of your response, include EXACTLY this JSON block:
+<next_action>{"needs_call": true/false, "call_to": "name or business or empty string", "call_phone": "+number or null", "call_purpose": "reason or empty string", "summary": "1-sentence summary of findings"}</next_action>`;
 
 async function processTaskInBackground(taskId: string, conversationId: string) {
   try {
@@ -18,37 +88,64 @@ async function processTaskInBackground(taskId: string, conversationId: string) {
     // Update task to in_progress
     await pool.query(
       "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
-      [taskId]
+      [taskId],
     );
 
-    // Log that we're starting work
+    // Log start
     await pool.query(
       `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'pending')`,
-      ['task_research_started', JSON.stringify({ task_id: taskId, title: task.title })]
+      ['task_research_started', JSON.stringify({ task_id: taskId, title: task.title })],
     );
+
+    // Post progress: starting
+    await postProgress(conversationId, `🔍 Starting research on **"${task.title}"**... I'll search the web for the latest information and report back.`);
 
     // Look for matching contacts in our database
     const contactSearch = [];
     if (task.contact_name) {
       const res = await pool.query(
         `SELECT * FROM contacts WHERE name ILIKE $1 LIMIT 5`,
-        [`%${task.contact_name}%`]
+        [`%${task.contact_name}%`],
       );
       contactSearch.push(...res.rows);
     }
     if (task.contact_phone) {
       const res = await pool.query(
         `SELECT * FROM contacts WHERE phone_number = $1 LIMIT 1`,
-        [task.contact_phone]
+        [task.contact_phone],
       );
       contactSearch.push(...res.rows);
     }
 
     const contactContext = contactSearch.length > 0
       ? `\nMatching contacts found in database:\n${contactSearch.map((c: { name: string; phone_number: string; company: string; notes: string }) => `- ${c.name}: ${c.phone_number}${c.company ? ` (${c.company})` : ''}${c.notes ? ` — ${c.notes}` : ''}`).join('\n')}`
-      : '\nNo matching contacts found in database.';
+      : '';
 
-    // Use GPT-4o to research and plan next steps
+    // ── Step 1: Web Search ────────────────────────────────────────────
+    const searchQuery = `${task.title}${task.description ? ' ' + task.description.slice(0, 150) : ''} latest 2025`;
+    const webResults = await webSearch(searchQuery, openaiKey);
+
+    if (webResults) {
+      await postProgress(conversationId, `🌐 Found web results for **"${task.title}"**. Analyzing and preparing a structured report...`);
+    }
+
+    // ── Step 2: Analyze with GPT-4o ──────────────────────────────────
+    const userPrompt = `Research this task and provide well-formatted findings:
+
+**Task:** ${task.title}
+**Type:** ${task.type}
+**Priority:** ${task.priority}
+**Description:** ${task.description || 'No additional details'}
+**Contact:** ${task.contact_name || 'Not specified'}
+**Phone:** ${task.contact_phone || 'Not specified'}
+**Address:** ${task.address || 'Not specified'}
+**Constraints:** ${task.constraints || 'None'}
+**Preferred times:** ${task.preferred_time_1 || 'Flexible'}
+${contactContext}
+${webResults ? `\n--- WEB SEARCH RESULTS (use this real-time data) ---\n${webResults}\n--- END WEB RESULTS ---` : '\nNo web search results available — use your best knowledge but note that information may not be the latest.'}
+
+Based on all available information, provide a thorough, well-formatted research report. If comparing options, include a comparison table with pricing. Be specific with names, prices, and actionable details.`;
+
     const researchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -58,32 +155,13 @@ async function processTaskInBackground(taskId: string, conversationId: string) {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [
-          {
-            role: 'system',
-            content: `You are a research assistant for an AI operations agent. Your job is to research a task and provide actionable findings.
-
-Given a task, you should:
-1. Analyze what needs to be done
-2. Identify the key steps required
-3. Find relevant information (contacts, businesses, options, pricing, considerations)
-4. Provide a clear recommendation with next steps
-5. If a phone call would help, indicate who to call and why
-
-Be specific and practical. Provide real suggestions based on the task type.
-Keep your response concise but thorough (300-400 words max).
-
-IMPORTANT: At the end of your response, include a JSON block for the recommended next action:
-<next_action>{"needs_call": true/false, "call_to": "name or business", "call_phone": "+number or null", "call_purpose": "reason", "summary": "1-sentence summary of findings"}</next_action>`
-          },
-          {
-            role: 'user',
-            content: `Research this task and provide findings:\n\nTitle: ${task.title}\nType: ${task.type}\nPriority: ${task.priority}\nDescription: ${task.description || 'No description provided'}\nContact: ${task.contact_name || 'Not specified'}\nPhone: ${task.contact_phone || 'Not specified'}\nAddress: ${task.address || 'Not specified'}\nConstraints: ${task.constraints || 'None'}\nPreferred times: ${task.preferred_time_1 || 'Flexible'}${contactContext}`
-          }
+          { role: 'system', content: RESEARCH_SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
         ],
-        temperature: 0.7,
-        max_tokens: 800,
+        temperature: 0.5,
+        max_tokens: 1500,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(45000),
     });
 
     if (!researchResponse.ok) {
@@ -101,32 +179,41 @@ IMPORTANT: At the end of your response, include a JSON block for the recommended
     }
     const cleanResearch = researchContent.replace(/<next_action>[\s\S]*?<\/next_action>/, '').trim();
 
-    // Update task with research findings
-    const updatedDescription = `${task.description || ''}\n\n--- Agent Research ---\n${cleanResearch}`.trim();
+    // ── Step 3: Update task with formatted research ──────────────────
+    const existingDesc = task.description || '';
+    const hasExistingResearch = existingDesc.includes('## 🔍 Research Findings');
+    const updatedDescription = hasExistingResearch
+      ? `${existingDesc}\n\n---\n\n## 📋 Updated Research\n\n${cleanResearch}`
+      : `${existingDesc}\n\n## 🔍 Research Findings\n\n${cleanResearch}`.trim();
+
     await pool.query(
       `UPDATE tasks SET description = $1, updated_at = NOW() WHERE id = $2`,
-      [updatedDescription, taskId]
+      [updatedDescription, taskId],
     );
 
-    // Add research findings as a message in the conversation
+    // ── Step 4: Post final results to conversation ───────────────────
+    const callNote = nextAction.needs_call
+      ? `\n\n**Next step:** I recommend calling **${nextAction.call_to}**${nextAction.call_phone ? ` at ${nextAction.call_phone}` : ''}. I've created an approval request — please approve it when you're ready.`
+      : `\n\nI've updated the task with these findings. Let me know if you'd like me to take any further action.`;
+
     await pool.query(
       `INSERT INTO messages (conversation_id, role, content, action_type, action_data)
        VALUES ($1, 'assistant', $2, 'task_updated', $3)`,
       [
         conversationId,
-        `I've finished researching your task **"${task.title}"**. Here's what I found:\n\n${cleanResearch}${nextAction.needs_call ? `\n\n**Next step:** I recommend calling ${nextAction.call_to}${nextAction.call_phone ? ` at ${nextAction.call_phone}` : ''}. I'll create an approval request for this call — please approve it when you're ready.` : `\n\nI've updated the task with these findings. Let me know if you'd like me to take any further action.`}`,
+        `✅ Research complete for **"${task.title}"**:\n\n${cleanResearch}${callNote}`,
         JSON.stringify([{ action_type: 'task_updated', success: true, data: { task_id: taskId, title: task.title } }]),
-      ]
+      ],
     );
 
-    // If a call is recommended, auto-create approval
-    if (nextAction.needs_call) {
+    // ── Step 5: Create approval ONLY if genuinely needed ─────────────
+    if (nextAction.needs_call && nextAction.call_to) {
       const phoneNumber = nextAction.call_phone || task.contact_phone || null;
       const approvalResult = await pool.query(
         `INSERT INTO approvals (task_id, action_type, status, notes)
          VALUES ($1, 'make_call', 'pending', $2)
          RETURNING id`,
-        [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`]
+        [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`],
       );
 
       await pool.query(
@@ -136,43 +223,41 @@ IMPORTANT: At the end of your response, include a JSON block for the recommended
           `Approval needed: Call ${nextAction.call_to}`,
           `Agent wants to call ${nextAction.call_to}${phoneNumber ? ` (${phoneNumber})` : ''} for task "${task.title}": ${nextAction.call_purpose}`,
           taskId,
-        ]
+        ],
       );
 
-      // Update task to pending approval
       await pool.query(
         "UPDATE tasks SET status = 'pending_approval', updated_at = NOW() WHERE id = $1",
-        [taskId]
+        [taskId],
       );
 
       await pool.query(
         `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-        ['auto_approval_created', JSON.stringify({ task_id: taskId, approval_id: approvalResult.rows[0].id, call_to: nextAction.call_to })]
+        ['auto_approval_created', JSON.stringify({ task_id: taskId, approval_id: approvalResult.rows[0].id, call_to: nextAction.call_to })],
       );
     }
 
-    // Create completion notification
+    // ── Step 6: Completion notification ──────────────────────────────
     await pool.query(
       `INSERT INTO notifications (type, title, message, related_task_id)
        VALUES ('task_update', $1, $2, $3)`,
       [
         `Research complete: ${task.title}`,
-        nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Ready for next steps.'}`,
+        nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Ready for review.'}`,
         taskId,
-      ]
+      ],
     );
 
-    // Log completion
     await pool.query(
       `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-      ['task_research_completed', JSON.stringify({ task_id: taskId, title: task.title, needs_call: nextAction.needs_call, summary: nextAction.summary })]
+      ['task_research_completed', JSON.stringify({ task_id: taskId, title: task.title, needs_call: nextAction.needs_call, web_search_used: !!webResults, summary: nextAction.summary })],
     );
 
   } catch (error) {
     console.error('Background task processing error:', error);
     await pool.query(
       `INSERT INTO agent_logs (action, details, status, error_message) VALUES ($1, $2, 'failure', $3)`,
-      ['task_research_failed', JSON.stringify({ task_id: taskId }), error instanceof Error ? error.message : 'Unknown error']
+      ['task_research_failed', JSON.stringify({ task_id: taskId }), error instanceof Error ? error.message : 'Unknown error'],
     ).catch(() => {});
   }
 }
@@ -214,8 +299,8 @@ async function buildSystemContext(): Promise<string> {
 
   const activeTasks = tasksRes.rows;
   const taskBlock = activeTasks.length > 0
-    ? `\nActive tasks:\n${activeTasks.map((t: { id: string; title: string; status: string; type: string; priority: string; contact_name: string; address: string }) =>
-      `- "${t.title}" (${t.type}, ${t.status}, priority: ${t.priority}${t.contact_name ? `, contact: ${t.contact_name}` : ''}${t.address ? `, address: ${t.address}` : ''}) ID: ${t.id}`
+    ? `\nActive tasks:\n${activeTasks.map((t: { id: string; title: string; status: string; type: string; priority: string; contact_name: string; address: string; description: string }) =>
+      `- "${t.title}" (${t.type}, ${t.status}, priority: ${t.priority}${t.contact_name ? `, contact: ${t.contact_name}` : ''}${t.address ? `, address: ${t.address}` : ''}${t.description && t.description.includes('## 🔍 Research Findings') ? ' — ✅ research completed' : t.status === 'in_progress' ? ' — 🔍 researching now...' : ''}) ID: ${t.id}`
     ).join('\n')}`
     : '\nNo active tasks.';
 
@@ -239,10 +324,13 @@ Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'nume
 
 IMPORTANT — YOU ARE A REAL AGENT, NOT JUST A CHATBOT:
 When you create a task, your backend system AUTOMATICALLY starts working on it in real-time:
-- It researches the task using AI (finds contacts, options, pricing, recommendations)
-- It updates the task with research findings
-- It creates approval requests when actions need user permission (like making calls)
-- It sends notifications when work is done
+- It searches the web for the latest real-time information
+- It researches the task using AI and web search results
+- It updates the task description with structured findings (tables, comparisons, recommendations)
+- It creates approval requests ONLY when actions genuinely need user permission (like making phone calls)
+- It sends notifications and posts progress updates in this chat
+- Tasks marked with "✅ research completed" already have findings — you can reference them directly
+- Tasks marked with "🔍 researching now..." are currently being worked on — let the user know
 You do NOT need to pretend or say "I'll look into this" — you actually DO it. The research happens automatically after you create a task.
 
 Your capabilities:
@@ -253,7 +341,7 @@ Your capabilities:
 5. Remember context — store important facts about the user's preferences, past decisions, and ongoing situations.
 
 RULES:
-- When the user asks you to do something, create a task immediately with all the details. Your system will automatically research it and report back.
+- When the user asks you to do something, create a task immediately with all the details. Your system will automatically research it using web search and report back.
 - NEVER take a call action without asking for approval first. Create an approval request and let the user approve it from the dashboard.
 - When creating a task, include ALL known details: what needs to be done, contact info if available, time preferences, constraints.
 - When the user's request is unclear, ask specific clarifying questions. Don't guess.
@@ -262,6 +350,7 @@ RULES:
 - Refer to existing tasks and calls when relevant — the user can see them in the dashboard.
 - Be proactive: suggest next steps, offer to create tasks, remind about pending approvals.
 - When a task is already in_progress, tell the user it's being worked on and they'll get a notification when research is done.
+- When the user asks about a task that has completed research, summarize the findings for them.
 
 ACTION FORMAT — when you need to take an action, include exactly one of these JSON blocks in your response, wrapped in <action> tags:
 

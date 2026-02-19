@@ -463,6 +463,46 @@ body {
   border-top: 1px solid var(--border-subtle);
   margin: 0.5rem 0;
 }
+.chat-table-wrapper {
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+.chat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.chat-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  background: var(--surface-secondary);
+  border-bottom: 2px solid var(--border-default);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.chat-table td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.chat-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.chat-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+.chat-link {
+  color: var(--text-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-link:hover {
+  opacity: 0.8;
+}
 .chat-content strong {
   font-weight: 600;
 }
