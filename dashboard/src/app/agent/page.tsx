@@ -237,7 +237,10 @@ function MessageBubble({ message }: { message: Message }) {
 
     return (
       <div className="flex justify-start px-4 py-1">
-        <div className="max-w-[85%] md:max-w-[70%]">
+        <div className="flex items-start gap-2.5 max-w-[85%] md:max-w-[70%]">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full mt-0.5 bg-[var(--surface-accent)] text-[var(--text-accent)]">
+            <Bot size={14} />
+          </div>
           <ActionCard result={parsedData} />
         </div>
       </div>
@@ -723,7 +726,7 @@ export default function AgentChatPage() {
       {
         id: `temp-voice-${Date.now()}`,
         role: 'user' as const,
-        content: '🎙️ Transcribing voice message...',
+        content: 'Transcribing voice message...',
         action_type: null,
         action_data: null,
         related_task_id: null,
@@ -926,7 +929,7 @@ export default function AgentChatPage() {
                       placeholder="Message Bob..."
                       rows={1}
                       disabled={isSending}
-                      className="w-full resize-none rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-ground)] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)] text-sm px-4 py-2.5 pr-10 focus:outline-none focus:border-[var(--border-focus)] focus:shadow-[var(--shadow-focus)] transition-colors disabled:opacity-50 max-h-40 scrollbar-hide"
+                      className="w-full resize-none rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-ground)] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)] text-sm px-4 py-2.5 focus:outline-none focus:border-[var(--border-focus)] focus:shadow-[var(--shadow-focus)] transition-colors disabled:opacity-50 max-h-40 scrollbar-hide"
                     />
                   </div>
                   {inputValue.trim() ? (

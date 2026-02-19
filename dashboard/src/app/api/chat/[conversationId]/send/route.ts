@@ -667,21 +667,6 @@ export async function POST(
       ]
     );
 
-    // Save action messages separately for timeline visibility
-    for (const result of actionResults) {
-      await pool.query(
-        `INSERT INTO messages (conversation_id, role, content, action_type, action_data, related_task_id)
-         VALUES ($1, 'action', $2, $3, $4, $5)`,
-        [
-          conversationId,
-          `${result.action_type}: ${result.success ? 'completed' : 'failed'}`,
-          result.action_type,
-          JSON.stringify(result),
-          result.data?.task_id || null,
-        ]
-      );
-    }
-
     // Update conversation title from first meaningful exchange
     const msgCount = await pool.query(
       `SELECT COUNT(*) as count FROM messages WHERE conversation_id = $1 AND role = 'user'`,

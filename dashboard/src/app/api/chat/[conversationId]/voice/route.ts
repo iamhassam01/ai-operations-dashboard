@@ -78,11 +78,10 @@ export async function POST(
     }
 
     // Now forward the transcript to the send endpoint internally
-    const sendUrl = new URL(
-      `/api/chat/${conversationId}/send`,
-      request.nextUrl.origin
-    );
-    const sendResponse = await fetch(sendUrl.toString(), {
+    // Use localhost to avoid self-signed cert issues on HTTPS deployments
+    const port = process.env.PORT || '3000';
+    const sendUrl = `http://localhost:${port}/api/chat/${conversationId}/send`;
+    const sendResponse = await fetch(sendUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: transcript }),
