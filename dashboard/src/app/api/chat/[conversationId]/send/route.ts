@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { notifyOwner } from '@/lib/email';
 
 // ─── Background Task Processing ──────────────────────────────────────
 // After creating a task, this fires in the background to actually research
@@ -266,13 +267,22 @@ Based on all available information, provide a thorough, well-formatted research 
       );
     }
 
-    // ── Step 6: Completion notification ──────────────────────────────
+    // ── Step 6: Auto-complete if no further action needed ───────────
+    if (!nextAction.needs_call) {
+      await pool.query(
+        "UPDATE tasks SET status = 'completed', updated_at = NOW() WHERE id = $1",
+        [taskId],
+      );
+      await postActivity(conversationId, 'status_changed', `Task completed: ${task.title}`, 'Research finished — no further action required.', taskId);
+    }
+
+    // ── Step 7: Completion notification ──────────────────────────────
     await pool.query(
       `INSERT INTO notifications (type, title, message, related_task_id)
        VALUES ('task_update', $1, $2, $3)`,
       [
-        `Research complete: ${task.title}`,
-        nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Ready for review.'}`,
+        nextAction.needs_call ? `Research complete: ${task.title}` : `Task completed: ${task.title}`,
+        nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Task marked as completed.'}`,
         taskId,
       ],
     );
@@ -369,8 +379,8 @@ async function buildSystemContext(): Promise<string> {
     ).join('\n')}`
     : '';
 
-  return `You are Bob, an AI operations assistant with REAL agentic capabilities. On phone calls you introduce yourself as Mr. Ermakov.
-You work for ${settings.business_name || 'Home'}, managed by Ivan Korn.
+  return `You are Bob, an AI operations assistant with REAL agentic capabilities. On phone calls you introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn.
+You work for Ivan Korn${settings.business_name ? ` (business: ${settings.business_name})` : ''}.
 Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 
 IMPORTANT — YOU ARE A REAL AGENT, NOT JUST A CHATBOT:
@@ -414,8 +424,13 @@ To request approval for a call:
 To store a memory about the user:
 <action>{"type":"store_memory","category":"preference|fact|context|instruction","content":"..."}</action>
 
-To update a task status:
-<action>{"type":"update_task","task_id":"...","status":"...","notes":"..."}</action>
+To update a task status (valid statuses: new, in_progress, pending_approval, approved, completed, cancelled, closed):
+<action>{"type":"update_task","task_id":"...","status":"completed","notes":"reason for update"}</action>
+
+IMPORTANT: When the user explicitly asks to mark a task as completed, done, or finished — you MUST include the update_task action with status "completed". Do NOT just say you've marked it — actually include the <action> tag so the system executes it. Similarly, when a task's purpose has been fulfilled (research delivered, booking confirmed, call made), proactively mark it as completed.
+
+To send an email notification:
+<action>{"type":"send_email","subject":"...","message":"...","to":"optional specific email"}</action>
 
 You can include multiple actions in one response if needed.
 
@@ -539,13 +554,41 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
           [action.status, action.task_id]
         );
 
+        if (action.notes) {
+          await pool.query(
+            `UPDATE tasks SET description = COALESCE(description, '') || E'\n\n---\n**Update:** ' || $1 WHERE id = $2`,
+            [action.notes as string, action.task_id]
+          );
+        }
+
         await pool.query(
           `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
           ['task_updated', JSON.stringify({ task_id: action.task_id, new_status: action.status, notes: action.notes, source: 'chat' })]
         );
 
+        // Create notification for task status change
+        await pool.query(
+          `INSERT INTO notifications (type, title, message, related_task_id)
+           VALUES ('task_update', $1, $2, $3)`,
+          [`Task ${action.status}: ${action.task_id}`, `Task status changed to ${action.status}${action.notes ? ': ' + action.notes : ''}`, action.task_id as string]
+        );
+
         results.push({ action_type: 'task_updated', success: true, data: { task_id: action.task_id as string } });
       }
+      break;
+    }
+
+    case 'send_email': {
+      const subject = (action.subject as string) || 'Update from Bob';
+      const message = (action.message as string) || '';
+      const sent = await notifyOwner(subject, message);
+
+      await pool.query(
+        `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, $3)`,
+        ['email_sent', JSON.stringify({ subject, to: action.to || 'owner', source: 'chat' }), sent ? 'success' : 'pending']
+      );
+
+      results.push({ action_type: 'email_sent', success: true, data: { subject, sent } });
       break;
     }
 

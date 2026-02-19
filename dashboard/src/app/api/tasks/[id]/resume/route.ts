@@ -273,13 +273,21 @@ Based on all available information, provide a thorough, well-formatted research 
     );
   }
 
-  // ── Step 6: Completion ────────────────────────────────────────────
+  // ── Step 6: Auto-complete if no further action needed ───────────
+  if (!nextAction.needs_call) {
+    await pool.query(
+      "UPDATE tasks SET status = 'completed', updated_at = NOW() WHERE id = $1",
+      [taskId],
+    );
+    await postActivity(conversationId, 'status_changed', `Task completed: ${task.title}`, 'Research finished — no further action required.', taskId);
+  }
+
   await pool.query(
     `INSERT INTO notifications (type, title, message, related_task_id)
      VALUES ('task_update', $1, $2, $3)`,
     [
-      `Research complete: ${task.title}`,
-      nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Ready for review.'}`,
+      nextAction.needs_call ? `Research complete: ${task.title}` : `Task completed: ${task.title}`,
+      nextAction.summary || `Finished researching "${task.title}". ${nextAction.needs_call ? 'Awaiting call approval.' : 'Task marked as completed.'}`,
       taskId,
     ],
   );

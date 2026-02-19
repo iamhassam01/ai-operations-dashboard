@@ -66,11 +66,37 @@
     maxConcurrentRuns: 2
   },
 
-  // Voice Call Plugin (disabled until Twilio credentials provided)
+  // Voice Call Plugin — ACTIVE with Twilio
   plugins: {
     entries: {
       "voice-call": {
-        enabled: false
+        enabled: true,
+        config: {
+          provider: "twilio",
+          fromNumber: "+12272637593",
+          twilio: {
+            accountSid: "${TWILIO_ACCOUNT_SID}",
+            authToken: "${TWILIO_AUTH_TOKEN}"
+          },
+          serve: {
+            port: 3334,
+            path: "/voice/webhook"
+          },
+          outbound: {
+            defaultMode: "conversation"
+          },
+          inboundPolicy: "allowlist",
+          allowFrom: [],
+          inboundGreeting: "Hello! This is Mr. Ermakov, calling on behalf of Ivan Korn. How can I help you today?",
+          tts: {
+            provider: "openai",
+            voice: "alloy"
+          },
+          staleCallReaperSeconds: 300,
+          streaming: {
+            enabled: true
+          }
+        }
       }
     }
   },

@@ -20,17 +20,10 @@ export async function GET() {
   }
 }
 
-// Initiate an actual call via Twilio when a make_call approval is granted
+// Initiate a multi-turn voice call via OpenClaw Voice Call Plugin
+// Falls back to direct Twilio TwiML if OpenClaw is unreachable
 async function executeApprovedCall(approval: { id: string; task_id: string; notes: string }) {
   try {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
-
-    if (!accountSid || !authToken || !fromNumber) {
-      throw new Error('Twilio credentials not configured');
-    }
-
     // Extract phone number from approval notes or task
     let phoneNumber: string | null = null;
     let callPurpose = 'Approved call';
@@ -51,12 +44,10 @@ async function executeApprovedCall(approval: { id: string; task_id: string; note
     }
 
     if (!phoneNumber) {
-      // No phone number available — log and skip actual call but don't fail
       await pool.query(
         `INSERT INTO agent_logs (action, details, status, error_message) VALUES ($1, $2, 'failure', $3)`,
         ['call_initiation', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id }), 'No phone number found for approved call']
       );
-
       await pool.query(
         `INSERT INTO notifications (type, title, message, related_task_id)
          VALUES ('error', 'Call failed', $1, $2)`,
@@ -65,83 +56,219 @@ async function executeApprovedCall(approval: { id: string; task_id: string; note
       return;
     }
 
-    // Get task info for the call message
+    // Get task info for the call context
     const taskRes = await pool.query('SELECT title, contact_name, description FROM tasks WHERE id = $1', [approval.task_id]);
     const task = taskRes.rows[0];
     const contactName = task?.contact_name || 'the contact';
 
-    // Build TwiML with the agent's introduction and purpose
-    const agentIdentity = 'Mr. Ermakov';
-    const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity} calling on behalf of our office. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
+    // ── Try OpenClaw Voice Call Plugin first (multi-turn conversations) ──
+    const openclawUrl = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
+    const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
+    let openclawSuccess = false;
 
-    // Place call via Twilio
-    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;
-    const params = new URLSearchParams();
-    params.append('To', phoneNumber);
-    params.append('From', fromNumber);
-    params.append('Twiml', twiml);
-    params.append('Record', 'true');
-    params.append('StatusCallbackEvent', 'initiated ringing answered completed');
-    params.append('StatusCallbackMethod', 'POST');
+    if (hookToken) {
+      try {
+        const agentMessage = `You have been approved to make a phone call. Use the voice_call tool to initiate a multi-turn conversation.
 
-    const response = await fetch(twilioUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
-    });
+CALL DETAILS:
+- Phone number: ${phoneNumber}
+- Contact: ${contactName}
+- Purpose: ${callPurpose}
+- Task: ${task?.title || 'Unknown task'}
+- Task ID: ${approval.task_id}
 
-    const callData = await response.json();
+INSTRUCTIONS:
+1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
+2. Introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn
+3. Explain the purpose: ${callPurpose}
+4. Have a professional multi-turn conversation
+5. When the call is complete, use voice_call with action "end_call"
+6. After the call, update the task with call results using the database
 
-    if (!response.ok) {
-      throw new Error(callData.message || `Twilio error: ${response.status}`);
+Remember: You are Mr. Ermakov. Be professional, warm, and efficient.`;
+
+        const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${hookToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: agentMessage,
+            name: `Call: ${contactName} — ${task?.title || 'Approved call'}`,
+            deliver: 'announce',
+            timeoutSeconds: 120,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (hookRes.ok) {
+          openclawSuccess = true;
+
+          // Create call record in database
+          await pool.query(
+            `INSERT INTO calls (task_id, direction, phone_number, caller_name, status, summary, created_at)
+             VALUES ($1, 'outbound', $2, $3, 'initiated', $4, NOW())`,
+            [approval.task_id, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
+          );
+
+          // Update task status
+          await pool.query(
+            "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
+            [approval.task_id]
+          );
+
+          // Success notification
+          await pool.query(
+            `INSERT INTO notifications (type, title, message, related_task_id)
+             VALUES ('call_completed', $1, $2, $3)`,
+            [
+              `Call initiated to ${contactName}`,
+              `Multi-turn voice call placed to ${phoneNumber} for task "${task?.title || 'Unknown'}". OpenClaw is managing the conversation.`,
+              approval.task_id,
+            ]
+          );
+
+          // Log success
+          await pool.query(
+            `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+            ['call_initiated_openclaw', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, mode: 'conversation' })]
+          );
+        }
+      } catch (hookError) {
+        console.error('OpenClaw voice call failed, falling back to Twilio:', hookError);
+      }
     }
 
-    // Create call record in database
-    await pool.query(
-      `INSERT INTO calls (twilio_call_sid, task_id, direction, phone_number, caller_name, status, summary, created_at)
-       VALUES ($1, $2, 'outbound', $3, $4, 'pending', $5, NOW())`,
-      [callData.sid, approval.task_id, phoneNumber, contactName, callPurpose]
-    );
+    // ── Fallback: Direct Twilio TwiML (one-way) if OpenClaw failed ──
+    if (!openclawSuccess) {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
-    // Update task status
-    await pool.query(
-      "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
-      [approval.task_id]
-    );
+      if (!accountSid || !authToken || !fromNumber) {
+        throw new Error('Neither OpenClaw nor Twilio are configured for voice calls');
+      }
 
-    // Create success notification
-    await pool.query(
-      `INSERT INTO notifications (type, title, message, related_task_id)
-       VALUES ('call_completed', $1, $2, $3)`,
-      [
-        `Call initiated to ${contactName}`,
-        `Call placed to ${phoneNumber} for task "${task?.title || 'Unknown'}". Call SID: ${callData.sid}`,
-        approval.task_id,
-      ]
-    );
+      const agentIdentity = 'Mr. Ermakov';
+      const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity}, calling on behalf of Ivan Korn. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
 
-    // Log success
-    await pool.query(
-      `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-      ['call_initiated', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, twilio_sid: callData.sid })]
-    );
+      const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;
+      const params = new URLSearchParams();
+      params.append('To', phoneNumber);
+      params.append('From', fromNumber);
+      params.append('Twiml', twiml);
+      params.append('Record', 'true');
+      params.append('StatusCallbackEvent', 'initiated ringing answered completed');
+      params.append('StatusCallbackMethod', 'POST');
+
+      const response = await fetch(twilioUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+
+      const callData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(callData.message || `Twilio error: ${response.status}`);
+      }
+
+      // Create call record
+      await pool.query(
+        `INSERT INTO calls (twilio_call_sid, task_id, direction, phone_number, caller_name, status, summary, created_at)
+         VALUES ($1, $2, 'outbound', $3, $4, 'pending', $5, NOW())`,
+        [callData.sid, approval.task_id, phoneNumber, contactName, `Fallback TwiML call: ${callPurpose}`]
+      );
+
+      // Update task status
+      await pool.query(
+        "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
+        [approval.task_id]
+      );
+
+      // Success notification
+      await pool.query(
+        `INSERT INTO notifications (type, title, message, related_task_id)
+         VALUES ('call_completed', $1, $2, $3)`,
+        [
+          `Call initiated to ${contactName}`,
+          `One-way call placed to ${phoneNumber} for task "${task?.title || 'Unknown'}". Call SID: ${callData.sid}. Note: OpenClaw was unavailable, used direct Twilio fallback.`,
+          approval.task_id,
+        ]
+      );
+
+      await pool.query(
+        `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+        ['call_initiated_twilio_fallback', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, twilio_sid: callData.sid })]
+      );
+    }
 
   } catch (error) {
     console.error('Failed to execute approved call:', error);
     const errMsg = error instanceof Error ? error.message : 'Unknown error';
 
+    // ── Retry logic: schedule retry if attempts remain ──
+    try {
+      const retryRes = await pool.query(
+        `SELECT COALESCE((details->>'retry_count')::int, 0) as retry_count
+         FROM agent_logs WHERE action = 'call_initiation' AND details->>'approval_id' = $1
+         ORDER BY created_at DESC LIMIT 1`,
+        [approval.id]
+      );
+      const retryCount = retryRes.rows[0]?.retry_count || 0;
+      const maxRetries = 3;
+
+      if (retryCount < maxRetries) {
+        const retryDelays = [5 * 60000, 15 * 60000, 30 * 60000]; // 5min, 15min, 30min
+        const delay = retryDelays[retryCount] || 30 * 60000;
+
+        await pool.query(
+          `INSERT INTO agent_logs (action, details, status, error_message) VALUES ($1, $2, 'pending', $3)`,
+          ['call_retry_scheduled', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, retry_count: retryCount + 1, max_retries: maxRetries, retry_in_ms: delay }), errMsg]
+        );
+
+        await pool.query(
+          `INSERT INTO notifications (type, title, message, related_task_id)
+           VALUES ('warning', $1, $2, $3)`,
+          [
+            `Call failed — retry ${retryCount + 1}/${maxRetries} scheduled`,
+            `Call to ${approval.notes || 'unknown'} failed: ${errMsg}. Retrying in ${delay / 60000} minutes.`,
+            approval.task_id,
+          ]
+        );
+
+        // Schedule retry via setTimeout (in-process)
+        setTimeout(() => {
+          executeApprovedCall(approval).catch(console.error);
+        }, delay);
+      } else {
+        // Max retries exhausted — escalate to user
+        await pool.query(
+          `INSERT INTO notifications (type, title, message, related_task_id)
+           VALUES ('error', $1, $2, $3)`,
+          [
+            `Call failed — all retries exhausted`,
+            `Failed to place call after ${maxRetries} attempts. Last error: ${errMsg}. Please try manually or check the phone number.`,
+            approval.task_id,
+          ]
+        );
+
+        await pool.query(
+          "UPDATE tasks SET status = 'failed', updated_at = NOW() WHERE id = $1",
+          [approval.task_id]
+        );
+      }
+    } catch (retryError) {
+      console.error('Retry scheduling failed:', retryError);
+    }
+
     await pool.query(
       `INSERT INTO agent_logs (action, details, status, error_message) VALUES ($1, $2, 'failure', $3)`,
       ['call_initiation', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id }), errMsg]
-    ).catch(() => {});
-
-    await pool.query(
-      `INSERT INTO notifications (type, title, message, related_task_id)
-       VALUES ('error', 'Call failed', $1, $2)`,
-      [`Failed to place call: ${errMsg}`, approval.task_id]
     ).catch(() => {});
   }
 }
