@@ -379,7 +379,7 @@ async function buildSystemContext(): Promise<string> {
     ).join('\n')}`
     : '';
 
-  return `You are Bob, an AI operations assistant with REAL agentic capabilities. On phone calls you introduce yourself as Bob, calling on behalf of Ivan Korn.
+  return `You are Bob, an AI operations assistant with REAL agentic capabilities. On phone calls you introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn.
 You work for Ivan Korn${settings.business_name ? ` (business: ${settings.business_name})` : ''}.
 Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 

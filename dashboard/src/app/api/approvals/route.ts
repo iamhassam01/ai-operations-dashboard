@@ -97,7 +97,7 @@ CALL DETAILS:
 
 INSTRUCTIONS:
 1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
-2. Introduce yourself as Bob, calling on behalf of Ivan Korn
+2. Introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn
 3. Explain the purpose: ${callPurpose}
 4. Have a professional multi-turn conversation
 5. When the call is complete, use voice_call with action "end_call"
@@ -168,7 +168,7 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
         throw new Error('Neither OpenClaw nor Twilio are configured for voice calls');
       }
 
-      const agentIdentity = 'Bob';
+      const agentIdentity = 'Mr. Ermakov';
       const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity}, calling on behalf of Ivan Korn. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
 
       const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;

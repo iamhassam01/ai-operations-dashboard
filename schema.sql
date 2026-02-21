@@ -157,7 +157,7 @@ CREATE INDEX IF NOT EXISTS idx_calendar_events_time ON calendar_events(start_tim
 INSERT INTO settings (key, value, description) VALUES
   ('business_name', '"Home"', 'Business/brand name'),
   ('agent_name', '"Bob"', 'AI agent display name'),
-  ('agent_identity', '"Bob"', 'Name the agent introduces itself as on calls'),
+  ('agent_identity', '"Mr. Ermakov"', 'Name the agent introduces itself as on calls'),
   ('primary_email', '"ivankorn.assistant@gmail.com"', 'Primary email for calendar and notifications'),
   ('cc_email', '"ivan.korn@insead.edu"', 'CC email for all notifications'),
   ('inbound_phone_country', '"CZ"', 'Country for inbound phone number'),

@@ -63,10 +63,26 @@ setup-git.ps1
 # Test scripts & internal deploy utilities
 deploy/test*.sh
 deploy/test-*.sh
+deploy/test*.py
 deploy/seed_mock_data.sql
 deploy/seed.sql
 deploy/fix_voice_config.py
 deploy/update_voice_config.py
+
+# Internal deploy configs & one-off migrations (keep workspace/ only)
+deploy/openclaw.json
+deploy/nginx-ai-dashboard.conf
+deploy/setup_cron.sh
+deploy/chat_migration.sql
+deploy/db_migration.sql
+deploy/fix_constraint.sql
+deploy/update_task_status.sql
+deploy/fix_identity.sql
+deploy/fix_business_name.sql
+deploy/check_names.sql
+
+# Internal gap analysis & audit reports
+OPENCLAW_GAP_ANALYSIS.md
 deploy/workspace/scripts/
 
 # Reports & PDFs
