@@ -254,9 +254,9 @@ export default function NotificationsPage() {
                           </a>
                         )}
 
-                        {notif.type === 'approval_required' && (
+                        {notif.type === 'approval_required' && notif.related_task_id && (
                           <a
-                            href="/"
+                            href={`/tasks?task=${notif.related_task_id}`}
                             className="inline-flex items-center gap-1 text-[var(--text-accent)] transition-colors duration-[var(--duration-fast)] hover:underline"
                             style={{ fontSize: 'var(--text-caption)' }}
                           >

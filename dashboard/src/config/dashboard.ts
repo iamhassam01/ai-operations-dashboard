@@ -5,7 +5,7 @@ export const dashboardConfig = {
   description: 'Gloura — AI Operations',
   agent: {
     name: 'Bob',
-    phoneIdentity: 'Mr. Ermakov',
+    phoneIdentity: 'Bob',
   },
   nav: {
     main: [

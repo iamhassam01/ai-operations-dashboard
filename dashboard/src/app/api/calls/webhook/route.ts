@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
 
     // Build TwiML response
     const agentNameRes = await pool.query("SELECT value FROM settings WHERE key = 'agent_identity'");
-    const agentIdentity = agentNameRes.rows[0]?.value?.replace(/"/g, '') || 'Mr. Ermakov';
+    const agentIdentity = agentNameRes.rows[0]?.value?.replace(/"/g, '') || 'Bob';
 
     let twiml: string;
 

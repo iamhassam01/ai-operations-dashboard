@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'action')),
   content TEXT NOT NULL,
-  action_type TEXT CHECK (action_type IN ('task_created', 'call_initiated', 'research_started', 'approval_requested', 'approval_result', 'call_completed', 'info_gathered', 'error', 'clarification', 'web_search_complete', 'research_complete', 'approval_created', 'status_changed', 'research_failed', 'task_updated', 'memory_stored', 'approval_requested_call')),
+  action_type TEXT CHECK (action_type IN ('task_created', 'call_initiated', 'research_started', 'approval_requested', 'approval_result', 'call_completed', 'info_gathered', 'error', 'clarification', 'web_search_complete', 'research_complete', 'approval_created', 'status_changed', 'research_failed', 'task_updated', 'memory_stored', 'approval_requested_call', 'email_sent', 'contact_saved', 'calendar_event_created')),
   action_data JSONB,
   related_task_id UUID REFERENCES tasks(id),
   related_call_id UUID REFERENCES calls(id),

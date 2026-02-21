@@ -9,8 +9,10 @@ interface ToggleProps {
   id?: string;
 }
 
+let toggleCounter = 0;
+
 export function Toggle({ checked, onChange, label, description, disabled = false, id }: ToggleProps) {
-  const toggleId = id || `toggle-${label?.replace(/\s+/g, '-').toLowerCase()}`;
+  const toggleId = id || (label ? `toggle-${label.replace(/\s+/g, '-').toLowerCase()}` : `toggle-${++toggleCounter}`);
 
   return (
     <label

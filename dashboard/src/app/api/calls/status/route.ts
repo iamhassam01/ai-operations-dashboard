@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
           const duration = call.duration_seconds ? `${Math.floor(call.duration_seconds / 60)}m ${call.duration_seconds % 60}s` : 'unknown duration';
           await notifyOwner(
             `Call Completed: ${call.caller_name || call.phone_number}`,
-            `${call.direction === 'inbound' ? 'Inbound' : 'Outbound'} call ${call.direction === 'inbound' ? 'from' : 'to'} ${call.caller_name || call.phone_number} has completed.\n\nDuration: ${duration}\n${recordingUrl ? 'Recording is available in the dashboard.' : ''}\n\nView in dashboard: https://76.13.40.146/calls`
+            `${call.direction === 'inbound' ? 'Inbound' : 'Outbound'} call ${call.direction === 'inbound' ? 'from' : 'to'} ${call.caller_name || call.phone_number} has completed.\n\nDuration: ${duration}\n${recordingUrl ? 'Recording is available in the dashboard.' : ''}\n\nView in dashboard: https://gloura.me/calls`
           );
         } catch {
           // Email is non-critical

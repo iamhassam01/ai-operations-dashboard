@@ -2,16 +2,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { notifyOwner } from '@/lib/email';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const result = await pool.query(
-      `SELECT a.*, t.title as task_title, c.phone_number
+    const taskId = request.nextUrl.searchParams.get('task_id');
+
+    let query: string;
+    let queryParams: (string | null)[];
+
+    if (taskId) {
+      // When filtering by task, show ALL statuses (for task detail view)
+      query = `SELECT a.*, t.title as task_title, c.phone_number
+       FROM approvals a
+       LEFT JOIN tasks t ON a.task_id = t.id
+       LEFT JOIN calls c ON a.call_id = c.id
+       WHERE a.task_id = $1
+       ORDER BY a.created_at DESC`;
+      queryParams = [taskId];
+    } else {
+      // Default: only pending approvals
+      query = `SELECT a.*, t.title as task_title, c.phone_number
        FROM approvals a
        LEFT JOIN tasks t ON a.task_id = t.id
        LEFT JOIN calls c ON a.call_id = c.id
        WHERE a.status = 'pending'
-       ORDER BY a.created_at ASC`
-    );
+       ORDER BY a.created_at ASC`;
+      queryParams = [];
+    }
+
+    const result = await pool.query(query, queryParams);
 
     return NextResponse.json(result.rows);
   } catch (error) {
@@ -79,13 +97,13 @@ CALL DETAILS:
 
 INSTRUCTIONS:
 1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
-2. Introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn
+2. Introduce yourself as Bob, calling on behalf of Ivan Korn
 3. Explain the purpose: ${callPurpose}
 4. Have a professional multi-turn conversation
 5. When the call is complete, use voice_call with action "end_call"
 6. After the call, update the task with call results using the database
 
-Remember: You are Mr. Ermakov. Be professional, warm, and efficient.`;
+Remember: You are Bob. Be professional, warm, and efficient.`;
 
         const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
           method: 'POST',
@@ -150,7 +168,7 @@ Remember: You are Mr. Ermakov. Be professional, warm, and efficient.`;
         throw new Error('Neither OpenClaw nor Twilio are configured for voice calls');
       }
 
-      const agentIdentity = 'Mr. Ermakov';
+      const agentIdentity = 'Bob';
       const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity}, calling on behalf of Ivan Korn. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
 
       const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;
@@ -353,12 +371,12 @@ export async function PATCH(request: NextRequest) {
 
       await notifyOwner(
         `Task ${status === 'approved' ? 'Approved' : 'Rejected'}: ${taskTitle}`,
-        `Task "${taskTitle}" (${taskType}) has been ${status}.\n\nAction type: ${approval.action_type}\n${notes ? `Notes: ${notes}` : ''}\n\nView in dashboard: https://76.13.40.146/tasks`,
+        `Task "${taskTitle}" (${taskType}) has been ${status}.\n\nAction type: ${approval.action_type}\n${notes ? `Notes: ${notes}` : ''}\n\nView in dashboard: https://gloura.me/tasks`,
         `<h3>Task ${status === 'approved' ? '✅ Approved' : '❌ Rejected'}: ${taskTitle}</h3>
          <p><strong>Type:</strong> ${taskType}</p>
          <p><strong>Action:</strong> ${approval.action_type}</p>
          ${notes ? `<p><strong>Notes:</strong> ${notes}</p>` : ''}
-         <p><a href="https://76.13.40.146/tasks">View in Dashboard</a></p>`
+         <p><a href="https://gloura.me/tasks">View in Dashboard</a></p>`
       );
     } catch (emailErr) {
       console.error('Failed to send approval email:', emailErr);
