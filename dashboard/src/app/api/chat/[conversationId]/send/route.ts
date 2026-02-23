@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { notifyOwner } from '@/lib/email';
+import { buildCalendarContext, createEvent, listEvents, detectConflicts, isCalendarConnected } from '@/lib/google-calendar';
+import { trackOpenAIUsage } from '@/lib/api-usage';
 
 // ─── Background Task Processing ──────────────────────────────────────
 // After creating a task, this fires in the background to actually research
@@ -31,6 +33,7 @@ async function postActivity(
 // Helper: perform web search using OpenAI Responses API with web_search tool
 async function webSearch(query: string, openaiKey: string): Promise<string | null> {
   try {
+    const start = Date.now();
     const res = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -48,6 +51,7 @@ async function webSearch(query: string, openaiKey: string): Promise<string | nul
     if (!res.ok) return null;
 
     const data = await res.json();
+    trackOpenAIUsage('responses/web_search', 'gpt-4o-mini', data.usage, Date.now() - start).catch(() => {});
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const msg = data.output?.find((o: any) => o.type === 'message');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -160,6 +164,7 @@ ${webResults ? `\n--- WEB SEARCH RESULTS (use this real-time data) ---\n${webRes
 
 Based on all available information, provide a thorough, well-formatted research report. If comparing options, include a comparison table with pricing. Be specific with names, prices, and actionable details.`;
 
+    const researchStart = Date.now();
     const researchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -184,6 +189,7 @@ Based on all available information, provide a thorough, well-formatted research 
 
     const researchData = await researchResponse.json();
     const researchContent = researchData.choices?.[0]?.message?.content || '';
+    trackOpenAIUsage('chat/completions/research', 'gpt-4o', researchData.usage, Date.now() - researchStart).catch(() => {});
 
     // Parse next action recommendation
     let nextAction = { needs_call: false, call_to: '', call_phone: '', call_purpose: '', summary: '' };
@@ -379,6 +385,9 @@ async function buildSystemContext(): Promise<string> {
     ).join('\n')}`
     : '';
 
+  // Calendar context (today's events, conflicts, next event)
+  const calendarBlock = await buildCalendarContext();
+
   return `You are Bob, an AI operations assistant with REAL agentic capabilities. On phone calls you introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn.
 You work for Ivan Korn${settings.business_name ? ` (business: ${settings.business_name})` : ''}.
 Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
@@ -400,6 +409,7 @@ Your capabilities:
 3. Manage approvals — present plans to the user and wait for their approval before executing. Approval requests appear in the dashboard.
 4. Track progress — show the user what you've done, what's in progress, what's waiting. Reference task IDs.
 5. Remember context — store important facts about the user's preferences, past decisions, and ongoing situations.
+6. Google Calendar — check today's schedule, detect conflicts, find available time slots, and create calendar events. You can see today's events in the system state below.
 
 RULES:
 - When the user asks you to do something, create a task immediately with all the details. Your system will automatically research it using web search and report back.
@@ -432,12 +442,19 @@ IMPORTANT: When the user explicitly asks to mark a task as completed, done, or f
 To send an email notification:
 <action>{"type":"send_email","subject":"...","message":"...","to":"optional specific email"}</action>
 
+To create a calendar event:
+<action>{"type":"create_calendar_event","summary":"Meeting title","description":"Details","start":"2025-01-15T10:00:00","end":"2025-01-15T11:00:00","location":"optional","attendees":[{"email":"person@example.com"}]}</action>
+
+To check calendar availability for a time range:
+<action>{"type":"check_calendar","start":"2025-01-15T09:00:00","end":"2025-01-15T18:00:00"}</action>
+
 You can include multiple actions in one response if needed.
 
 CURRENT SYSTEM STATE:
 ${taskBlock}
 ${callBlock}
 ${approvalBlock}
+${calendarBlock}
 ${memoryBlock}`;
 }
 
@@ -592,6 +609,67 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
       break;
     }
 
+    case 'create_calendar_event': {
+      try {
+        const connected = await isCalendarConnected();
+        if (!connected) {
+          results.push({ action_type: 'calendar_event_created', success: false, error: 'Google Calendar not connected' });
+          break;
+        }
+
+        const event = await createEvent({
+          summary: (action.summary as string) || 'Untitled Event',
+          description: action.description as string | undefined,
+          location: action.location as string | undefined,
+          start: { dateTime: action.start as string, timeZone: 'Europe/Prague' },
+          end: { dateTime: action.end as string, timeZone: 'Europe/Prague' },
+          attendees: Array.isArray(action.attendees) ? action.attendees as Array<{ email: string; displayName?: string }> : undefined,
+        });
+
+        await pool.query(
+          `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+          ['calendar_event_created', JSON.stringify({ event_id: event.id, summary: event.summary, source: 'chat' })]
+        );
+
+        results.push({ action_type: 'calendar_event_created', success: true, data: { event_id: event.id, summary: event.summary, link: event.htmlLink } });
+      } catch (err) {
+        results.push({ action_type: 'calendar_event_created', success: false, error: err instanceof Error ? err.message : 'Failed to create event' });
+      }
+      break;
+    }
+
+    case 'check_calendar': {
+      try {
+        const connected = await isCalendarConnected();
+        if (!connected) {
+          results.push({ action_type: 'calendar_checked', success: false, error: 'Google Calendar not connected' });
+          break;
+        }
+
+        const startTime = action.start as string;
+        const endTime = action.end as string;
+        const events = await listEvents(startTime, endTime, 20);
+        const conflicts = await detectConflicts(startTime, endTime);
+
+        results.push({
+          action_type: 'calendar_checked',
+          success: true,
+          data: {
+            event_count: events.length,
+            has_conflicts: conflicts.hasConflict,
+            events: events.map(e => ({
+              summary: e.summary,
+              start: e.start.dateTime || e.start.date,
+              end: e.end.dateTime || e.end.date,
+            })),
+          },
+        });
+      } catch (err) {
+        results.push({ action_type: 'calendar_checked', success: false, error: err instanceof Error ? err.message : 'Failed' });
+      }
+      break;
+    }
+
     default:
       results.push({ action_type: action.type, success: false, error: 'Unknown action type' });
   }
@@ -647,6 +725,7 @@ export async function POST(
     const openaiKey = process.env.OPENAI_API_KEY;
     if (openaiKey) {
       try {
+        const chatStart = Date.now();
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -665,6 +744,7 @@ export async function POST(
         if (response.ok) {
           const data = await response.json();
           assistantContent = data.choices?.[0]?.message?.content || '';
+          trackOpenAIUsage('chat/completions', 'gpt-4o', data.usage, Date.now() - chatStart).catch(() => {});
         } else {
           const errData = await response.json().catch(() => null);
           const errMsg = errData?.error?.message || `HTTP ${response.status}`;

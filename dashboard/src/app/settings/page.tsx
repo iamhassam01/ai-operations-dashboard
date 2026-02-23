@@ -1,15 +1,36 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Phone, Calendar, Bot, Check, Clock, Brain, Pencil, Trash2, X } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { Save, Phone, Calendar, Bot, Check, Clock, Brain, Pencil, Trash2, X, BarChart3, RefreshCw, ExternalLink, Unplug } from 'lucide-react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { toast } from 'sonner';
+import { useSearchParams } from 'next/navigation';
 import { OverlineHeading } from '@/components/ui/OverlineHeading';
 import { Input, Select } from '@/components/ui/Input';
 import { Toggle } from '@/components/ui/Toggle';
 import { Button } from '@/components/ui/Button';
 import { Badge, StatusDot } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+
+// Separate component for search params handling (needs Suspense boundary)
+function CalendarRedirectHandler() {
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const calendarStatus = searchParams.get('calendar');
+    if (calendarStatus === 'connected') {
+      toast.success('Google Calendar connected successfully!');
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+    } else if (calendarStatus === 'denied') {
+      toast.error('Google Calendar access was denied');
+    } else if (calendarStatus === 'error') {
+      toast.error(`Calendar connection failed: ${searchParams.get('msg') || 'unknown error'}`);
+    }
+  }, [searchParams, queryClient]);
+
+  return null;
+}
 
 interface Setting {
   key: string;
@@ -56,6 +77,7 @@ export default function SettingsPage() {
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editMemoryContent, setEditMemoryContent] = useState('');
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
+  const [usageDays, setUsageDays] = useState(30);
 
   const { data: settings, isLoading } = useQuery<Setting[]>({
     queryKey: ['settings'],
@@ -166,6 +188,44 @@ export default function SettingsPage() {
     onError: () => toast.error('Failed to delete memory'),
   });
 
+  // API Usage
+  const { data: usageData, isLoading: loadingUsage, refetch: refetchUsage } = useQuery<{
+    total_requests: number;
+    total_tokens: number;
+    total_cost: number;
+    by_service: Array<{ service: string; request_count: number; total_tokens: number; total_cost: number }>;
+    by_model: Array<{ model: string; request_count: number; total_tokens: number; total_cost: number }>;
+    recent: Array<{ id: number; service: string; endpoint: string; model: string | null; total_tokens: number; estimated_cost: number; duration_ms: number; created_at: string }>;
+    daily: Array<{ date: string; request_count: number; total_tokens: number; total_cost: number }>;
+  }>({
+    queryKey: ['api-usage', usageDays],
+    queryFn: () => fetch(`/api/api-usage?days=${usageDays}`).then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  // Calendar connection state
+  const calendarConnected = editedSettings.google_calendar_connected === 'true';
+  const calendarEmail = editedSettings.google_calendar_email || '';
+
+  const handleConnectCalendar = useCallback(() => {
+    window.location.href = '/api/auth/google';
+  }, []);
+
+  const handleDisconnectCalendar = useCallback(async () => {
+    try {
+      await Promise.all([
+        fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'google_calendar_connected', value: 'false' }) }),
+        fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'google_access_token', value: '' }) }),
+        fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'google_refresh_token', value: '' }) }),
+        fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'google_calendar_email', value: '' }) }),
+      ]);
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      toast.success('Google Calendar disconnected');
+    } catch {
+      toast.error('Failed to disconnect');
+    }
+  }, [queryClient]);
+
   const integrations = [
     {
       name: 'OpenClaw AI Agent',
@@ -182,13 +242,18 @@ export default function SettingsPage() {
     {
       name: 'Google Calendar',
       icon: Calendar,
-      status: 'pending' as const,
-      detail: 'Not configured yet',
+      status: calendarConnected ? 'connected' as const : 'pending' as const,
+      detail: calendarConnected ? `Connected: ${calendarEmail}` : 'Click Connect to link your Google Calendar',
     },
   ];
 
   return (
     <div className="space-y-8 max-w-3xl">
+      {/* Handle Google Calendar OAuth redirect */}
+      <Suspense fallback={null}>
+        <CalendarRedirectHandler />
+      </Suspense>
+
       {/* Page Header */}
       <div>
         <h1
@@ -510,17 +575,215 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-              <Badge
-                variant={integration.status === 'connected' ? 'success' : 'warning'}
-              >
-                {integration.status === 'connected' ? 'Connected' : 'Pending'}
-              </Badge>
+              <div className="flex items-center gap-2">
+                {integration.name === 'Google Calendar' && (
+                  calendarConnected ? (
+                    <Button variant="ghost" size="sm" onClick={handleDisconnectCalendar}>
+                      <Unplug size={14} />
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button variant="primary" size="sm" onClick={handleConnectCalendar}>
+                      <ExternalLink size={14} />
+                      Connect
+                    </Button>
+                  )
+                )}
+                <Badge
+                  variant={integration.status === 'connected' ? 'success' : 'warning'}
+                >
+                  {integration.status === 'connected' ? 'Connected' : 'Pending'}
+                </Badge>
+              </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Section 7: System Information */}
+      {/* Section 7: API Usage */}
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+        <OverlineHeading action={
+          <div className="flex items-center gap-2">
+            <select
+              value={usageDays}
+              onChange={(e) => setUsageDays(parseInt(e.target.value))}
+              className="rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--surface-primary)] px-2 py-0.5 text-[var(--text-secondary)] focus-ring"
+              style={{ fontSize: 'var(--text-caption)' }}
+            >
+              <option value={7}>7 days</option>
+              <option value={30}>30 days</option>
+              <option value={90}>90 days</option>
+            </select>
+            <button
+              onClick={() => refetchUsage()}
+              className="flex items-center gap-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              title="Refresh usage data"
+            >
+              <RefreshCw size={12} />
+            </button>
+          </div>
+        }>
+          <div className="flex items-center gap-2">
+            <BarChart3 size={14} className="text-[var(--text-accent)]" />
+            API Usage
+          </div>
+        </OverlineHeading>
+
+        {loadingUsage ? (
+          <div className="mt-4 py-6 text-center text-xs text-[var(--text-tertiary)]">Loading usage data...</div>
+        ) : !usageData || usageData.total_requests === 0 ? (
+          <div className="mt-4 py-6 text-center text-xs text-[var(--text-tertiary)]">
+            No API usage recorded yet. Usage tracking starts automatically when the agent processes requests.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-5">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Total Requests', value: usageData.total_requests.toLocaleString() },
+                { label: 'Total Tokens', value: usageData.total_tokens.toLocaleString() },
+                { label: 'Estimated Cost', value: `$${usageData.total_cost.toFixed(4)}` },
+              ].map((card) => (
+                <div
+                  key={card.label}
+                  className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-secondary)] p-3 text-center"
+                >
+                  <p className="text-[var(--text-tertiary)]" style={{ fontSize: 'var(--text-caption)' }}>
+                    {card.label}
+                  </p>
+                  <p className="mt-1 font-semibold text-[var(--text-primary)]" style={{ fontSize: 'var(--text-body)' }}>
+                    {card.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* By Service */}
+            {usageData.by_service.length > 0 && (
+              <div>
+                <p className="text-[var(--text-secondary)] font-medium mb-2" style={{ fontSize: 'var(--text-body-small)' }}>
+                  By Service
+                </p>
+                <div className="space-y-1.5">
+                  {usageData.by_service.map((s) => (
+                    <div key={s.service} className="flex items-center justify-between py-1.5 px-3 rounded-[var(--radius-sm)] bg-[var(--surface-secondary)]">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={s.service === 'openai' ? 'accent' : s.service === 'twilio' ? 'info' : 'success'}>
+                          {s.service}
+                        </Badge>
+                        <span className="text-[var(--text-secondary)]" style={{ fontSize: 'var(--text-caption)' }}>
+                          {s.request_count} requests
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-[var(--text-tertiary)] font-mono" style={{ fontSize: 'var(--text-caption)' }}>
+                          {s.total_tokens.toLocaleString()} tokens
+                        </span>
+                        <span className="text-[var(--text-primary)] font-mono font-medium" style={{ fontSize: 'var(--text-caption)' }}>
+                          ${s.total_cost.toFixed(4)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* By Model */}
+            {usageData.by_model.length > 0 && (
+              <div>
+                <p className="text-[var(--text-secondary)] font-medium mb-2" style={{ fontSize: 'var(--text-body-small)' }}>
+                  By Model
+                </p>
+                <div className="space-y-1.5">
+                  {usageData.by_model.map((m) => (
+                    <div key={m.model} className="flex items-center justify-between py-1.5 px-3 rounded-[var(--radius-sm)] bg-[var(--surface-secondary)]">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[var(--text-primary)]" style={{ fontSize: 'var(--text-body-small)' }}>
+                          {m.model}
+                        </span>
+                        <span className="text-[var(--text-tertiary)]" style={{ fontSize: 'var(--text-caption)' }}>
+                          {m.request_count} calls
+                        </span>
+                      </div>
+                      <span className="text-[var(--text-primary)] font-mono font-medium" style={{ fontSize: 'var(--text-caption)' }}>
+                        ${m.total_cost.toFixed(4)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Daily Breakdown */}
+            {usageData.daily.length > 0 && (
+              <div>
+                <p className="text-[var(--text-secondary)] font-medium mb-2" style={{ fontSize: 'var(--text-body-small)' }}>
+                  Daily Breakdown
+                </p>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {usageData.daily.slice(0, 14).map((d) => (
+                    <div key={d.date} className="flex items-center justify-between py-1 px-3 rounded-[var(--radius-sm)] hover:bg-[var(--surface-hover)] transition-colors">
+                      <span className="text-[var(--text-secondary)] font-mono" style={{ fontSize: 'var(--text-caption)' }}>
+                        {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <div className="flex items-center gap-4">
+                        <span className="text-[var(--text-tertiary)]" style={{ fontSize: 'var(--text-caption)' }}>
+                          {d.request_count} req
+                        </span>
+                        <span className="text-[var(--text-tertiary)] font-mono" style={{ fontSize: 'var(--text-caption)' }}>
+                          {d.total_tokens.toLocaleString()} tok
+                        </span>
+                        <span className="text-[var(--text-primary)] font-mono font-medium" style={{ fontSize: 'var(--text-caption)' }}>
+                          ${d.total_cost.toFixed(4)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recent Calls */}
+            {usageData.recent.length > 0 && (
+              <div>
+                <p className="text-[var(--text-secondary)] font-medium mb-2" style={{ fontSize: 'var(--text-body-small)' }}>
+                  Recent API Calls
+                </p>
+                <div className="max-h-64 overflow-y-auto space-y-1">
+                  {usageData.recent.slice(0, 20).map((r) => (
+                    <div key={r.id} className="flex items-center justify-between py-1.5 px-3 rounded-[var(--radius-sm)] hover:bg-[var(--surface-hover)] transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Badge variant={r.service === 'openai' ? 'accent' : r.service === 'twilio' ? 'info' : 'success'}>
+                          {r.service}
+                        </Badge>
+                        <span className="text-[var(--text-secondary)] truncate" style={{ fontSize: '10px' }}>
+                          {r.endpoint}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {r.model && (
+                          <span className="font-mono text-[var(--text-tertiary)]" style={{ fontSize: '10px' }}>
+                            {r.model}
+                          </span>
+                        )}
+                        <span className="font-mono text-[var(--text-tertiary)]" style={{ fontSize: '10px' }}>
+                          {r.duration_ms}ms
+                        </span>
+                        <span className="font-mono text-[var(--text-primary)] font-medium" style={{ fontSize: '10px' }}>
+                          ${r.estimated_cost.toFixed(5)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Section 8: System Information */}
       <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
         <OverlineHeading>System Information</OverlineHeading>
         <div className="mt-4 space-y-3">
@@ -550,7 +813,7 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* Section 8: Agent Memory */}
+      {/* Section 9: Agent Memory */}
       <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
         <OverlineHeading action={
           <span
