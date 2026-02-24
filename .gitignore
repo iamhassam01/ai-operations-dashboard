@@ -92,3 +92,5 @@ deploy/workspace/scripts/
 
 # Ignore root duplicate logo (keep dashboard/public/gloura-logo.jpeg)
 /gloura-logo.jpeg
+MILESTONE_1_FINAL_REPORT.md
+MILESTONE_1_FINAL_REPORT copy.md
