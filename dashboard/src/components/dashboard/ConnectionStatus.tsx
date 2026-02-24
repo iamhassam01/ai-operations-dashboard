@@ -64,8 +64,12 @@ export function ConnectionStatus() {
     {
       label: 'Calendar',
       icon: Calendar,
-      status: 'pending',
-      detail: 'Not configured',
+      status: (settings?.google_calendar_connected === 'true' || settings?.google_calendar_connected === true)
+        ? 'connected'
+        : 'pending',
+      detail: (settings?.google_calendar_connected === 'true' || settings?.google_calendar_connected === true)
+        ? `Connected${settings?.google_calendar_email ? ` (${String(settings.google_calendar_email).replace(/^"|"$/g, '')})` : ''}`
+        : 'Not configured',
     },
     {
       label: 'Recording',
