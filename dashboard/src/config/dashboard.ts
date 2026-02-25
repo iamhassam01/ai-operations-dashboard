@@ -10,7 +10,7 @@ export const dashboardConfig = {
   nav: {
     main: [
       { title: 'Agent', href: '/agent', icon: MessageSquareText },
-      { title: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { title: 'Tasks', href: '/tasks', icon: ListTodo, badgeKey: 'pending_tasks' as const },
       { title: 'Calls', href: '/calls', icon: Phone },
       { title: 'Notifications', href: '/notifications', icon: Bell, badgeKey: 'unread_notifications' as const },

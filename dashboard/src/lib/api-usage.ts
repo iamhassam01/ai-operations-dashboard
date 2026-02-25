@@ -197,7 +197,16 @@ export async function getUsageSummary(days: number = 30): Promise<UsageSummary> 
       total_tokens: parseInt(r.total_tokens),
       total_cost: parseFloat(r.total_cost),
     })),
-    recent: recent.rows,
+    recent: recent.rows.map((r: any) => ({
+      id: parseInt(r.id, 10),
+      service: r.service,
+      endpoint: r.endpoint,
+      model: r.model || null,
+      total_tokens: parseInt(r.total_tokens || '0', 10),
+      estimated_cost: parseFloat(r.estimated_cost || '0'),
+      duration_ms: parseInt(r.duration_ms || '0', 10),
+      created_at: r.created_at,
+    })),
     daily: daily.rows.map((r: { date: string; request_count: string; total_tokens: string; total_cost: string }) => ({
       date: r.date,
       request_count: parseInt(r.request_count),
