@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import { Greeting } from '@/components/dashboard/Greeting';
 import { ActionCenter } from '@/components/dashboard/ActionCenter';
 import { QuickStats } from '@/components/dashboard/QuickStats';
@@ -7,6 +8,8 @@ import { RecentTasks } from '@/components/dashboard/RecentTasks';
 import { AgentActivity } from '@/components/dashboard/AgentActivity';
 
 export default function DashboardPage() {
+  // Make Agent the default landing page — redirect root to /agent
+  redirect('/agent');
   return (
     <div className="space-y-6 stagger-children">
       {/* Layer 1: Greeting + DND — no card wrapper */}
