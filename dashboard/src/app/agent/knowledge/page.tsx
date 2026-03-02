@@ -345,7 +345,7 @@ export default function KnowledgeLibraryPage() {
 
       {/* Add Collection Modal */}
       <Modal
-        isOpen={showAddCollection}
+        open={showAddCollection}
         onClose={() => setShowAddCollection(false)}
         title="New Collection"
         footer={
@@ -386,7 +386,7 @@ export default function KnowledgeLibraryPage() {
 
       {/* Add Entry Modal */}
       <Modal
-        isOpen={showAddEntry}
+        open={showAddEntry}
         onClose={() => setShowAddEntry(false)}
         title="Add Knowledge Entry"
         footer={

@@ -403,7 +403,7 @@ export default function MemoryBankPage() {
 
       {/* Add/Edit Modal */}
       <Modal
-        isOpen={showAddModal}
+        open={showAddModal}
         onClose={() => { setShowAddModal(false); setEditingFact(null); }}
         title={editingFact ? 'Edit Fact' : 'Add New Fact'}
         footer={
