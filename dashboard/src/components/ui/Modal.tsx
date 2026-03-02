@@ -52,7 +52,7 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = '520p
           style={{ maxWidth }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-default)] shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 border-b border-[var(--border-default)] shrink-0">
             <h2
               id="modal-title"
               className="text-[var(--text-primary)] font-semibold"
@@ -62,7 +62,7 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = '520p
             </h2>
             <button
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)]
+              className="flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-[var(--radius-md)]
                 text-[var(--text-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]
                 transition-colors duration-[var(--duration-fast)] focus-ring"
               aria-label="Close"
@@ -72,13 +72,13 @@ export function Modal({ open, onClose, title, children, footer, maxWidth = '520p
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
             {children}
           </div>
 
           {/* Footer */}
           {footer && (
-            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--border-default)] shrink-0">
+            <div className="flex items-center justify-end gap-3 px-4 py-3 sm:px-5 sm:py-4 border-t border-[var(--border-default)] shrink-0">
               {footer}
             </div>
           )}

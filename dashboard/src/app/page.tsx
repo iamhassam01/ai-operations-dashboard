@@ -8,7 +8,7 @@ import { AgentActivity } from '@/components/dashboard/AgentActivity';
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6 stagger-children">
+    <div className="space-y-4 sm:space-y-6 stagger-children">
       {/* Layer 1: Greeting + DND — no card wrapper */}
       <Greeting />
 
@@ -22,7 +22,7 @@ export default function DashboardPage() {
       <ConnectionStatus />
 
       {/* Layer 5: Recent Activity — two columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
         <RecentTasks />
         <RecentCalls />
       </div>

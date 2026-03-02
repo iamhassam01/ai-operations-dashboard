@@ -14,7 +14,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 const baseInputStyles = `
-  w-full h-9 rounded-[var(--radius-md)]
+  w-full h-10 sm:h-9 rounded-[var(--radius-md)]
   border border-[var(--border-default)]
   bg-[var(--surface-primary)]
   text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]

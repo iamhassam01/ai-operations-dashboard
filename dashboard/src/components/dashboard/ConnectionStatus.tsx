@@ -80,10 +80,10 @@ export function ConnectionStatus() {
   ];
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-4 sm:p-5">
       <OverlineHeading>System Status</OverlineHeading>
 
-      <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {connections.map((conn) => (
           <div key={conn.label} className="flex items-center gap-3">
             <StatusDot

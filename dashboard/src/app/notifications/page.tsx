@@ -142,7 +142,7 @@ export default function NotificationsPage() {
   ];
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-4 sm:space-y-6 max-w-3xl">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -187,7 +187,7 @@ export default function NotificationsPage() {
               {items.map((notif) => (
                 <div
                   key={notif.id}
-                  className={`rounded-[var(--radius-lg)] border bg-[var(--surface-primary)] p-4 transition-all duration-[var(--duration-fast)] hover:border-[var(--border-hover)] ${
+                  className={`rounded-[var(--radius-lg)] border bg-[var(--surface-primary)] p-3 sm:p-4 transition-all duration-[var(--duration-fast)] hover:border-[var(--border-hover)] ${
                     !notif.is_read
                       ? 'border-l-[3px] border-l-[var(--interactive-primary)] border-[var(--border-default)]'
                       : 'border-[var(--border-default)]'
@@ -197,9 +197,9 @@ export default function NotificationsPage() {
                     {/* Unread indicator */}
                     <div className="mt-1.5 shrink-0">
                       {!notif.is_read ? (
-                        <div className="h-2.5 w-2.5 rounded-full bg-[var(--interactive-primary)]" />
+                        <div className="h-3 w-3 rounded-full bg-[var(--interactive-primary)]" />
                       ) : (
-                        <div className="h-2.5 w-2.5 rounded-full border border-[var(--border-default)]" />
+                        <div className="h-3 w-3 rounded-full border border-[var(--border-default)]" />
                       )}
                     </div>
 

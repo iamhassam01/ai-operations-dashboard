@@ -18,7 +18,7 @@ export function FilterPills({ options, value, onChange }: FilterPillsProps) {
             aria-selected={isActive}
             onClick={() => onChange(option.value)}
             className={`
-              inline-flex items-center gap-1 rounded-full px-3 py-1.5
+              inline-flex items-center gap-1 rounded-full px-3 py-2 sm:py-1.5
               text-xs font-medium whitespace-nowrap transition-colors duration-[var(--duration-fast)]
               focus-ring select-none
               ${

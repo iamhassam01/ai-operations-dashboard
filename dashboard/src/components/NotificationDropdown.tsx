@@ -120,9 +120,9 @@ export function NotificationDropdown() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-elevated)] shadow-xl z-50 overflow-hidden animate-[fadeInUp_var(--duration-normal)_var(--ease-default)]">
+        <div className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-80 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-elevated)] shadow-xl z-50 overflow-hidden animate-[fadeInUp_var(--duration-normal)_var(--ease-default)]">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-[var(--border-default)] px-4 py-3">
+          <div className="flex items-center justify-between border-b border-[var(--border-default)] px-3 py-2.5 sm:px-4 sm:py-3">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">Notifications</h3>
             <div className="flex items-center gap-2">
               {unreadCount > 0 && (
@@ -148,7 +148,7 @@ export function NotificationDropdown() {
               notifications.map((notif) => (
                 <div
                   key={notif.id}
-                  className={`flex gap-3 px-4 py-3 border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface-hover)] transition-colors duration-[var(--duration-fast)] cursor-pointer ${
+                  className={`flex gap-3 px-3 py-2.5 sm:px-4 sm:py-3 border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-[var(--surface-hover)] transition-colors duration-[var(--duration-fast)] cursor-pointer ${
                     !notif.is_read ? 'bg-[var(--surface-accent)]' : ''
                   }`}
                   onClick={() => {

@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
 
     // Look up contact name from contacts table
     let callerName = 'Unknown Caller';
+    let linkedTaskId: string | null = null;
     if (from) {
       const contactRes = await pool.query(
         'SELECT name FROM contacts WHERE phone_number = $1 LIMIT 1',
@@ -20,15 +21,24 @@ export async function POST(request: NextRequest) {
       if (contactRes.rows.length > 0 && contactRes.rows[0].name) {
         callerName = contactRes.rows[0].name;
       }
+
+      // Auto-link to the most recent active task with this phone number
+      const taskRes = await pool.query(
+        `SELECT id FROM tasks WHERE contact_phone = $1 AND status NOT IN ('completed', 'cancelled', 'closed') ORDER BY created_at DESC LIMIT 1`,
+        [from]
+      );
+      if (taskRes.rows.length > 0) {
+        linkedTaskId = taskRes.rows[0].id;
+      }
     }
 
     // Log the inbound call to database
     const callRes = await pool.query(
-      `INSERT INTO calls (id, twilio_call_sid, direction, phone_number, caller_name, status, started_at, created_at)
-       VALUES (gen_random_uuid(), $1, 'inbound', $2, $3, 'in_progress', NOW(), NOW())
-       ON CONFLICT (twilio_call_sid) DO UPDATE SET status = 'in_progress', started_at = NOW()
+      `INSERT INTO calls (id, twilio_call_sid, direction, phone_number, caller_name, status, task_id, started_at, created_at)
+       VALUES (gen_random_uuid(), $1, 'inbound', $2, $3, 'in_progress', $4, NOW(), NOW())
+       ON CONFLICT (twilio_call_sid) DO UPDATE SET status = 'in_progress', started_at = NOW(), task_id = COALESCE(calls.task_id, $4)
        RETURNING id`,
-      [callSid, from, callerName]
+      [callSid, from, callerName, linkedTaskId]
     );
 
     const callId = callRes.rows[0]?.id;

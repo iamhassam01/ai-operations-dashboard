@@ -35,6 +35,7 @@ interface Call {
   recording_url: string;
   task_title: string;
   task_id: string;
+  captured_info: Record<string, string> | null;
   created_at: string;
 }
 
@@ -393,6 +394,35 @@ export default function CallsPage() {
                   >
                     Transcribe Recording
                   </Button>
+                )}
+
+                {call.captured_info && Object.keys(call.captured_info).length > 0 && (
+                  <div>
+                    <OverlineHeading>Captured Information</OverlineHeading>
+                    <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {Object.entries(call.captured_info).map(([key, value]) =>
+                        value ? (
+                          <div
+                            key={key}
+                            className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--surface-primary)] p-2.5"
+                          >
+                            <span
+                              className="text-[var(--text-tertiary)] uppercase tracking-wider"
+                              style={{ fontSize: '10px' }}
+                            >
+                              {key.replace(/_/g, ' ')}
+                            </span>
+                            <p
+                              className="mt-0.5 text-[var(--text-primary)] font-medium"
+                              style={{ fontSize: 'var(--text-body-small)' }}
+                            >
+                              {value}
+                            </p>
+                          </div>
+                        ) : null
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {call.task_id && call.task_title && (

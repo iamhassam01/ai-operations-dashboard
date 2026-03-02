@@ -77,6 +77,9 @@ export function Header() {
 
       <div className="flex items-center gap-2">
         {/* Agent status — live from health check */}
+        <div className="sm:hidden flex items-center mr-0.5">
+          <StatusDot color={agentOnline ? 'success' : 'warning'} size="sm" pulse={agentOnline} />
+        </div>
         <div className="hidden sm:flex items-center gap-1.5 mr-1 px-2 py-1 rounded-full bg-[var(--surface-secondary)]">
           <StatusDot color={agentOnline ? 'success' : 'warning'} size="sm" pulse={agentOnline} />
           <span className="text-[10px] font-medium text-[var(--text-tertiary)]">Agent {agentStatus}</span>

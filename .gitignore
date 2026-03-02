@@ -94,3 +94,9 @@ deploy/workspace/scripts/
 /gloura-logo.jpeg
 MILESTONE_1_FINAL_REPORT.md
 MILESTONE_1_FINAL_REPORT copy.md
+AGENT_RESTRUCTURING_REFERENCE.md
+
+# Internal calendaring/usage migration and priority migrations (deploy-only)
+deploy/calendar_and_usage_migration.sql
+deploy/milestone2_migration.sql
+deploy/priority3_10_migration.sql

@@ -248,7 +248,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-5 sm:space-y-8 max-w-3xl">
       {/* Handle Google Calendar OAuth redirect */}
       <Suspense fallback={null}>
         <CalendarRedirectHandler />
@@ -271,7 +271,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Section: User Profile */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>Your Profile</OverlineHeading>
         <div className="mt-4 space-y-4">
           <Input
@@ -312,7 +312,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 1: Agent Identity */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>Agent Identity</OverlineHeading>
         <div className="mt-4 space-y-4">
           <Input
@@ -354,7 +354,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 2: Contact & Communication */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>Contact &amp; Communication</OverlineHeading>
         <div className="mt-4 space-y-4">
           <Input
@@ -403,7 +403,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 3: Preferences */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>Preferences</OverlineHeading>
         <div className="mt-4 space-y-5">
           <Toggle
@@ -446,7 +446,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 4: Office Hours */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading action={
           <div className="flex items-center gap-1 text-[var(--text-tertiary)]">
             <Clock size={12} />
@@ -459,7 +459,7 @@ export default function SettingsPage() {
             return (
               <div
                 key={day}
-                className="flex items-center gap-3 rounded-[var(--radius-md)] py-2.5 px-3 hover:bg-[var(--surface-hover)] transition-colors"
+                className="flex flex-wrap items-center gap-2 sm:gap-3 rounded-[var(--radius-md)] py-2.5 px-2 sm:px-3 hover:bg-[var(--surface-hover)] transition-colors"
               >
                 <Toggle
                   checked={schedule.enabled}
@@ -517,7 +517,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 5: Notification Preferences */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>Notification Preferences</OverlineHeading>
         <div className="mt-4 space-y-5">
           <Toggle
@@ -546,7 +546,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 6: Integrations */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>Integrations</OverlineHeading>
         <div className="mt-4 space-y-3">
           {integrations.map((integration) => (
@@ -601,7 +601,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 7: API Usage */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading action={
           <div className="flex items-center gap-2">
             <select
@@ -638,7 +638,7 @@ export default function SettingsPage() {
         ) : (
           <div className="mt-4 space-y-5">
             {/* Summary Cards */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {[
                 { label: 'Total Requests', value: usageData.total_requests.toLocaleString() },
                 { label: 'Total Tokens', value: usageData.total_tokens.toLocaleString() },
@@ -666,7 +666,7 @@ export default function SettingsPage() {
                 </p>
                 <div className="space-y-1.5">
                   {usageData.by_service.map((s) => (
-                    <div key={s.service} className="flex items-center justify-between py-1.5 px-3 rounded-[var(--radius-sm)] bg-[var(--surface-secondary)]">
+                    <div key={s.service} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2 py-1.5 px-3 rounded-[var(--radius-sm)] bg-[var(--surface-secondary)]">
                       <div className="flex items-center gap-2">
                         <Badge variant={s.service === 'openai' ? 'accent' : s.service === 'twilio' ? 'info' : 'success'}>
                           {s.service}
@@ -675,7 +675,7 @@ export default function SettingsPage() {
                           {s.request_count} requests
                         </span>
                       </div>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-4 pl-6 sm:pl-0">
                         <span className="text-[var(--text-tertiary)] font-mono" style={{ fontSize: 'var(--text-caption)' }}>
                           {s.total_tokens.toLocaleString()} tokens
                         </span>
@@ -752,7 +752,7 @@ export default function SettingsPage() {
                 </p>
                 <div className="max-h-64 overflow-y-auto space-y-1">
                   {usageData.recent.slice(0, 20).map((r) => (
-                    <div key={r.id} className="flex items-center justify-between py-1.5 px-3 rounded-[var(--radius-sm)] hover:bg-[var(--surface-hover)] transition-colors">
+                    <div key={r.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2 py-1.5 px-3 rounded-[var(--radius-sm)] hover:bg-[var(--surface-hover)] transition-colors">
                       <div className="flex items-center gap-2 min-w-0">
                         <Badge variant={r.service === 'openai' ? 'accent' : r.service === 'twilio' ? 'info' : 'success'}>
                           {r.service}
@@ -784,7 +784,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 8: System Information */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading>System Information</OverlineHeading>
         <div className="mt-4 space-y-3">
           {[
@@ -814,7 +814,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Section 9: Agent Memory */}
-      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-5">
+      <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-transparent p-3 sm:p-4 md:p-5">
         <OverlineHeading action={
           <span
             className="text-[var(--text-tertiary)]"
@@ -897,14 +897,14 @@ export default function SettingsPage() {
                       <>
                         <button
                           onClick={() => updateMemory.mutate({ id: mem.id, content: editMemoryContent })}
-                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-success hover:bg-[var(--surface-hover)] transition-colors"
+                          className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-success hover:bg-[var(--surface-hover)] transition-colors"
                           title="Save"
                         >
                           <Check size={13} />
                         </button>
                         <button
                           onClick={() => setEditingMemoryId(null)}
-                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] transition-colors"
+                          className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] transition-colors"
                           title="Cancel"
                         >
                           <X size={13} />
@@ -914,14 +914,14 @@ export default function SettingsPage() {
                       <>
                         <button
                           onClick={() => { setEditingMemoryId(mem.id); setEditMemoryContent(mem.content); }}
-                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors"
+                          className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors"
                           title="Edit"
                         >
                           <Pencil size={12} />
                         </button>
                         <button
                           onClick={() => setDeletingMemoryId(mem.id)}
-                          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-error hover:bg-[var(--status-error-surface)] transition-colors"
+                          className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-error hover:bg-[var(--status-error-surface)] transition-colors"
                           title="Delete"
                         >
                           <Trash2 size={12} />

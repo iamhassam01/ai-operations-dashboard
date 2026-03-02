@@ -42,7 +42,7 @@ export function RecentCalls() {
   });
 
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-primary)] p-5">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--surface-primary)] p-4 sm:p-5">
       <OverlineHeading
         action={
           <a

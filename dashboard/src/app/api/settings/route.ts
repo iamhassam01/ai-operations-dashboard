@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { redactSettingValue } from '@/lib/security';
 
 export async function GET() {
   try {
     const result = await pool.query('SELECT key, value, description, updated_at FROM settings ORDER BY key');
-    return NextResponse.json(result.rows);
+    // Redact sensitive values before sending to client
+    const redacted = result.rows.map((row: { key: string; value: string; description: string; updated_at: string }) => ({
+      ...row,
+      value: redactSettingValue(row.key, row.value),
+    }));
+    return NextResponse.json(redacted);
   } catch (error) {
     console.error('Settings API error:', error);
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 });
@@ -15,8 +21,8 @@ export async function PATCH(request: Request) {
   try {
     const { key, value } = await request.json();
 
-    if (!key) {
-      return NextResponse.json({ error: 'key is required' }, { status: 400 });
+    if (!key || typeof key !== 'string' || key.length > 255) {
+      return NextResponse.json({ error: 'Valid key is required' }, { status: 400 });
     }
 
     const result = await pool.query(
