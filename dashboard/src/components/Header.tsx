@@ -11,9 +11,14 @@ import { StatusDot } from '@/components/ui/Badge';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
+  '/dashboard': 'Dashboard',
   '/tasks': 'Tasks',
   '/calls': 'Call History',
-  '/agent': 'Agent Chat',
+  '/agent': 'Agent',
+  '/agent/memory': 'Memory Bank',
+  '/agent/knowledge': 'Knowledge Library',
+  '/emails': 'Emails',
+  '/research': 'Research',
   '/settings': 'Settings',
   '/notifications': 'Notifications',
 };
