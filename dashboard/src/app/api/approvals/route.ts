@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { notifyOwner } from '@/lib/email';
+import { getAgentContext, formatContextForHook } from '@/lib/agent-context';
 
 export async function GET(request: NextRequest) {
   try {
@@ -86,7 +87,13 @@ async function executeApprovedCall(approval: { id: string; task_id: string; note
 
     if (hookToken) {
       try {
+        // Gather agent context (memory, knowledge, settings) for the hook
+        const agentCtx = await getAgentContext();
+        const contextBlock = formatContextForHook(agentCtx);
+
         const agentMessage = `You have been approved to make a phone call. Use the voice_call tool to initiate a multi-turn conversation.
+
+${contextBlock}
 
 CALL DETAILS:
 - Phone number: ${phoneNumber}
@@ -97,7 +104,7 @@ CALL DETAILS:
 
 INSTRUCTIONS:
 1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
-2. Introduce yourself as Mr. Ermakov, calling on behalf of Ivan Korn
+2. Introduce yourself as ${agentCtx.identity.phoneIdentity}, calling on behalf of ${agentCtx.identity.owner}
 3. Explain the purpose: ${callPurpose}
 4. Have a professional multi-turn conversation
 5. When the call is complete, use voice_call with action "end_call"
@@ -341,6 +348,9 @@ export async function PATCH(request: NextRequest) {
         
         const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
         if (hookToken) {
+          const agentCtx = await getAgentContext();
+          const contextBlock = formatContextForHook(agentCtx);
+
           await fetch(`${process.env.OPENCLAW_URL || 'http://127.0.0.1:18789'}/hooks/agent`, {
             method: 'POST',
             headers: {
@@ -348,7 +358,7 @@ export async function PATCH(request: NextRequest) {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              message: `Execute approved task: ${taskTitle}. Task ID: ${approval.task_id}. Action type: ${approval.action_type}.`,
+              message: `Execute approved task: ${taskTitle}. Task ID: ${approval.task_id}. Action type: ${approval.action_type}.\n\n${contextBlock}`,
               name: `Approved: ${taskTitle}`,
               deliver: true,
             }),

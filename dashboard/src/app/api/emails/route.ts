@@ -57,8 +57,19 @@ export async function GET(request: NextRequest) {
 }
 
 // Webhook endpoint for OpenClaw to log emails it sends/receives
+// Requires OPENCLAW_HOOK_TOKEN for authentication
 export async function POST(request: NextRequest) {
   try {
+    // Validate webhook token
+    const authHeader = request.headers.get('authorization');
+    const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
+    if (hookToken) {
+      const providedToken = authHeader?.replace('Bearer ', '');
+      if (providedToken !== hookToken) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+
     const body = await request.json();
     const { task_id, direction, from_address, to_address, subject, body_text, body_html, status, ai_drafted, related_contact_id } = body;
 

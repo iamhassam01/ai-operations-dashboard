@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { getAgentContext, formatContextForHook } from '@/lib/agent-context';
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,7 +47,9 @@ export async function POST(request: NextRequest) {
 
     if (hookToken) {
       try {
-        const prompt = buildDraftPrompt(task, contacts, calls, to_address);
+        const agentCtx = await getAgentContext();
+        const contextBlock = formatContextForHook(agentCtx);
+        const prompt = buildDraftPrompt(task, contacts, calls, to_address) + '\n\n' + contextBlock;
 
         const ocResponse = await fetch(`${gatewayUrl}/hooks/agent`, {
           method: 'POST',

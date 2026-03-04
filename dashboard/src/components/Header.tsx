@@ -10,7 +10,7 @@ import { NotificationDropdown } from '@/components/NotificationDropdown';
 import { StatusDot } from '@/components/ui/Badge';
 
 const pageTitles: Record<string, string> = {
-  '/': 'Dashboard',
+  '/': 'Agent',
   '/dashboard': 'Dashboard',
   '/tasks': 'Tasks',
   '/calls': 'Call History',

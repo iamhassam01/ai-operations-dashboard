@@ -76,6 +76,7 @@ function EmailComposeModal({
   onClose,
   tasks,
   onSend,
+  onSendNow,
   isSending,
 }: {
   open: boolean;
@@ -88,6 +89,13 @@ function EmailComposeModal({
     body_text: string;
     ai_drafted: boolean;
     status: string;
+  }) => void;
+  onSendNow: (data: {
+    task_id: string;
+    to_address: string;
+    subject: string;
+    body_text: string;
+    ai_drafted: boolean;
   }) => void;
   isSending: boolean;
 }) {
@@ -124,19 +132,29 @@ function EmailComposeModal({
       .finally(() => setAiGenerating(false));
   }
 
-  function handleSubmit(asApproval: boolean) {
+  function handleSubmit(action: 'draft' | 'approval' | 'send') {
     if (!toAddress || !subject) {
       toast.error('To address and subject are required');
       return;
     }
-    onSend({
-      task_id: taskId || '',
-      to_address: toAddress,
-      subject,
-      body_text: bodyText,
-      ai_drafted: mode === 'ai',
-      status: asApproval ? 'pending_approval' : 'draft',
-    });
+    if (action === 'send') {
+      onSendNow({
+        task_id: taskId || '',
+        to_address: toAddress,
+        subject,
+        body_text: bodyText,
+        ai_drafted: mode === 'ai',
+      });
+    } else {
+      onSend({
+        task_id: taskId || '',
+        to_address: toAddress,
+        subject,
+        body_text: bodyText,
+        ai_drafted: mode === 'ai',
+        status: action === 'approval' ? 'pending_approval' : 'draft',
+      });
+    }
   }
 
   function resetForm() {
@@ -158,11 +176,11 @@ function EmailComposeModal({
           <p className="flex-1 text-[var(--text-tertiary)]" style={{ fontSize: '11px' }}>
             This email will be sent on your behalf by the AI assistant.
           </p>
-          <Button variant="secondary" size="sm" onClick={() => handleSubmit(false)} loading={isSending}>
+          <Button variant="secondary" size="sm" onClick={() => handleSubmit('draft')} loading={isSending}>
             Save Draft
           </Button>
-          <Button variant="primary" size="sm" onClick={() => handleSubmit(true)} loading={isSending}>
-            Request Approval
+          <Button variant="primary" size="sm" icon={<Send size={13} />} onClick={() => handleSubmit('send')} loading={isSending}>
+            Send
           </Button>
         </div>
       }
@@ -271,7 +289,7 @@ export default function EmailsPage() {
     enabled: composeOpen,
   });
 
-  // Compose email mutation
+  // Compose email mutation (save draft)
   const composeMutation = useMutation({
     mutationFn: (data: {
       task_id: string;
@@ -303,6 +321,35 @@ export default function EmailsPage() {
       );
     },
     onError: () => toast.error('Failed to save email'),
+  });
+
+  // Send email mutation (actually sends via SMTP)
+  const sendMutation = useMutation({
+    mutationFn: (data: {
+      task_id: string;
+      to_address: string;
+      subject: string;
+      body_text: string;
+      ai_drafted: boolean;
+    }) =>
+      fetch('/api/emails/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }).then((r) => {
+        if (!r.ok && r.status !== 207) throw new Error('Failed to send email');
+        return r.json();
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['emails'] });
+      setComposeOpen(false);
+      if (data.warning) {
+        toast.warning(data.warning);
+      } else {
+        toast.success('Email sent successfully');
+      }
+    },
+    onError: () => toast.error('Failed to send email'),
   });
 
   const filteredEmails = emails?.filter((e) => {
@@ -355,7 +402,8 @@ export default function EmailsPage() {
         onClose={() => setComposeOpen(false)}
         tasks={tasks}
         onSend={(data) => composeMutation.mutate(data)}
-        isSending={composeMutation.isPending}
+        onSendNow={(data) => sendMutation.mutate(data)}
+        isSending={composeMutation.isPending || sendMutation.isPending}
       />
 
       {/* Search + Filters */}
