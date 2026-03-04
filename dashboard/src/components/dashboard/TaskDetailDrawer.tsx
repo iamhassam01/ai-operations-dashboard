@@ -61,6 +61,8 @@ interface Call {
   summary: string;
   captured_info: Record<string, string> | null;
   created_at: string;
+  recording_url?: string;
+  transcript?: string;
 }
 
 interface Approval {
