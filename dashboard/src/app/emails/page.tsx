@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Mail,
   Send,
@@ -12,12 +12,19 @@ import {
   ChevronUp,
   Sparkles,
   ExternalLink,
+  Plus,
+  Bot,
+  PenLine,
+  Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { FilterPills } from '@/components/ui/FilterPills';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonList } from '@/components/ui/Skeleton';
 import { OverlineHeading } from '@/components/ui/OverlineHeading';
+import { Modal } from '@/components/ui/Modal';
+import { toast } from 'sonner';
 
 interface Email {
   id: string;
@@ -63,16 +70,239 @@ function titleCase(str: string): string {
   return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/* ─── Email Compose Modal ─── */
+function EmailComposeModal({
+  open,
+  onClose,
+  tasks,
+  onSend,
+  isSending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  tasks: { id: string; title: string }[] | undefined;
+  onSend: (data: {
+    task_id: string;
+    to_address: string;
+    subject: string;
+    body_text: string;
+    ai_drafted: boolean;
+    status: string;
+  }) => void;
+  isSending: boolean;
+}) {
+  const [taskId, setTaskId] = useState('');
+  const [toAddress, setToAddress] = useState('');
+  const [subject, setSubject] = useState('');
+  const [bodyText, setBodyText] = useState('');
+  const [mode, setMode] = useState<'manual' | 'ai'>('manual');
+  const [aiGenerating, setAiGenerating] = useState(false);
+
+  function handleAiDraft() {
+    if (!taskId) {
+      toast.error('Select a task first for AI to generate context');
+      return;
+    }
+    setAiGenerating(true);
+    // Simulate AI draft generation via agent hook
+    fetch('/api/emails/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId, to_address: toAddress }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.subject) setSubject(data.subject);
+        if (data.body_text) setBodyText(data.body_text);
+        if (data.to_address && !toAddress) setToAddress(data.to_address);
+        setMode('ai');
+        toast.success('AI draft generated');
+      })
+      .catch(() => {
+        toast.error('Failed to generate AI draft. You can write manually.');
+      })
+      .finally(() => setAiGenerating(false));
+  }
+
+  function handleSubmit(asApproval: boolean) {
+    if (!toAddress || !subject) {
+      toast.error('To address and subject are required');
+      return;
+    }
+    onSend({
+      task_id: taskId || '',
+      to_address: toAddress,
+      subject,
+      body_text: bodyText,
+      ai_drafted: mode === 'ai',
+      status: asApproval ? 'pending_approval' : 'draft',
+    });
+  }
+
+  function resetForm() {
+    setTaskId('');
+    setToAddress('');
+    setSubject('');
+    setBodyText('');
+    setMode('manual');
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { resetForm(); onClose(); }}
+      title="Compose Email"
+      maxWidth="600px"
+      footer={
+        <div className="flex items-center gap-2 w-full">
+          <p className="flex-1 text-[var(--text-tertiary)]" style={{ fontSize: '11px' }}>
+            This email will be sent on your behalf by the AI assistant.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => handleSubmit(false)} loading={isSending}>
+            Save Draft
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => handleSubmit(true)} loading={isSending}>
+            Request Approval
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {/* Link to Task */}
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-[var(--text-secondary)]">Link to Task</label>
+          <select
+            value={taskId}
+            onChange={(e) => setTaskId(e.target.value)}
+            className="w-full h-9 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-primary)] text-[var(--text-primary)] text-sm px-3 focus:outline-none focus:border-[var(--border-focus)]"
+          >
+            <option value="">No task linked</option>
+            {tasks?.map((t) => (
+              <option key={t.id} value={t.id}>{t.title}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* To Address */}
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-[var(--text-secondary)]">To</label>
+          <input
+            type="email"
+            value={toAddress}
+            onChange={(e) => setToAddress(e.target.value)}
+            className="w-full h-9 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-primary)] text-[var(--text-primary)] text-sm px-3 focus:outline-none focus:border-[var(--border-focus)]"
+            placeholder="recipient@example.com"
+          />
+        </div>
+
+        {/* Subject */}
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-[var(--text-secondary)]">Subject</label>
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="w-full h-9 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-primary)] text-[var(--text-primary)] text-sm px-3 focus:outline-none focus:border-[var(--border-focus)]"
+            placeholder="Email subject..."
+          />
+        </div>
+
+        {/* Mode Toggle */}
+        <div className="flex gap-1 rounded-[var(--radius-md)] bg-[var(--surface-secondary)] border border-[var(--border-subtle)] p-1">
+          <button
+            onClick={handleAiDraft}
+            disabled={aiGenerating}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors text-sm ${
+              mode === 'ai'
+                ? 'bg-[var(--surface-primary)] text-[var(--text-accent)] font-medium shadow-[var(--shadow-xs)]'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            {aiGenerating ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
+            AI Draft
+          </button>
+          <button
+            onClick={() => setMode('manual')}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors text-sm ${
+              mode === 'manual'
+                ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] font-medium shadow-[var(--shadow-xs)]'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <PenLine size={13} />
+            Write Manually
+          </button>
+        </div>
+
+        {/* Message Body */}
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-[var(--text-secondary)]">Message</label>
+          <textarea
+            value={bodyText}
+            onChange={(e) => setBodyText(e.target.value)}
+            rows={8}
+            className="w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--surface-primary)] text-[var(--text-primary)] text-sm px-3 py-2 focus:outline-none focus:border-[var(--border-focus)] placeholder:text-[var(--text-placeholder)]"
+            placeholder="Write your email message..."
+          />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function EmailsPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [directionFilter, setDirectionFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const { data: emails, isLoading } = useQuery<Email[]>({
     queryKey: ['emails'],
     queryFn: () => fetch('/api/emails?limit=50').then((r) => r.json()),
     refetchInterval: 15000,
+  });
+
+  // Fetch tasks for compose modal's task linking dropdown
+  const { data: tasks } = useQuery<{ id: string; title: string }[]>({
+    queryKey: ['tasks-for-compose'],
+    queryFn: () => fetch('/api/tasks?limit=100').then((r) => r.json()),
+    enabled: composeOpen,
+  });
+
+  // Compose email mutation
+  const composeMutation = useMutation({
+    mutationFn: (data: {
+      task_id: string;
+      to_address: string;
+      subject: string;
+      body_text: string;
+      ai_drafted: boolean;
+      status: string;
+    }) =>
+      fetch('/api/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          direction: 'sent',
+          from_address: 'assistant',
+          ...data,
+        }),
+      }).then((r) => {
+        if (!r.ok) throw new Error('Failed to save email');
+        return r.json();
+      }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['emails'] });
+      setComposeOpen(false);
+      toast.success(
+        variables.status === 'pending_approval'
+          ? 'Email submitted for approval'
+          : 'Email saved as draft'
+      );
+    },
+    onError: () => toast.error('Failed to save email'),
   });
 
   const filteredEmails = emails?.filter((e) => {
@@ -94,20 +324,39 @@ export default function EmailsPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1
-          className="font-bold text-[var(--text-primary)]"
-          style={{ fontSize: 'var(--text-heading)' }}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1
+            className="font-bold text-[var(--text-primary)]"
+            style={{ fontSize: 'var(--text-heading)' }}
+          >
+            Emails
+          </h1>
+          <p
+            className="mt-0.5 text-[var(--text-secondary)]"
+            style={{ fontSize: 'var(--text-body-small)' }}
+          >
+            Emails sent and received by the AI agent on your behalf
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Plus size={15} />}
+          onClick={() => setComposeOpen(true)}
         >
-          Emails
-        </h1>
-        <p
-          className="mt-0.5 text-[var(--text-secondary)]"
-          style={{ fontSize: 'var(--text-body-small)' }}
-        >
-          Emails sent and received by the AI agent on your behalf
-        </p>
+          Compose
+        </Button>
       </div>
+
+      {/* Compose Modal */}
+      <EmailComposeModal
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        tasks={tasks}
+        onSend={(data) => composeMutation.mutate(data)}
+        isSending={composeMutation.isPending}
+      />
 
       {/* Search + Filters */}
       <div className="space-y-3">

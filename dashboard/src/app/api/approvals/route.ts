@@ -114,7 +114,7 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
           body: JSON.stringify({
             message: agentMessage,
             name: `Call: ${contactName} — ${task?.title || 'Approved call'}`,
-            deliver: 'announce',
+            deliver: true,
             timeoutSeconds: 120,
           }),
           signal: AbortSignal.timeout(15000),
@@ -339,17 +339,21 @@ export async function PATCH(request: NextRequest) {
         const taskResult = await pool.query('SELECT title FROM tasks WHERE id = $1', [approval.task_id]);
         const taskTitle = taskResult.rows[0]?.title || 'Unknown task';
         
-        await fetch(`${process.env.OPENCLAW_URL || 'http://127.0.0.1:18789'}/hooks/agent`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.OPENCLAW_HOOK_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: `Execute approved task: ${taskTitle}. Task ID: ${approval.task_id}. Action type: ${approval.action_type}.`,
-            name: `Approved: ${taskTitle}`,
-          }),
-        });
+        const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
+        if (hookToken) {
+          await fetch(`${process.env.OPENCLAW_URL || 'http://127.0.0.1:18789'}/hooks/agent`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${hookToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: `Execute approved task: ${taskTitle}. Task ID: ${approval.task_id}. Action type: ${approval.action_type}.`,
+              name: `Approved: ${taskTitle}`,
+              deliver: true,
+            }),
+          });
+        }
       } catch (hookError) {
         console.error('Failed to trigger OpenClaw hook:', hookError);
       }
