@@ -10,24 +10,30 @@ export interface AgentContext {
 /**
  * Gathers agent context from DB (memory facts, knowledge, settings)
  * to include in OpenClaw hook calls so the agent actually uses dashboard data.
+ * Each query is individually fail-safe so one failure doesn't break the whole context.
  */
 export async function getAgentContext(): Promise<AgentContext> {
-  const [factsRes, knowledgeRes, settingsRes] = await Promise.all([
-    pool.query("SELECT key, value, category FROM agent_memory_facts ORDER BY category, key LIMIT 50"),
-    pool.query("SELECT title, content, category FROM knowledge_entries WHERE status = 'active' ORDER BY category LIMIT 20"),
-    pool.query("SELECT key, value FROM settings WHERE key IN ('agent_name', 'agent_identity', 'owner_name', 'business_name', 'timezone', 'operating_hours_start', 'operating_hours_end', 'notification_email', 'cc_email')"),
+  const safeQuery = async (sql: string) => {
+    try { return (await pool.query(sql)).rows; }
+    catch { return []; }
+  };
+
+  const [factsRows, knowledgeRows, settingsRows] = await Promise.all([
+    safeQuery("SELECT key, value, category FROM agent_memory_facts ORDER BY category, key LIMIT 50"),
+    safeQuery("SELECT title, content, category FROM knowledge_entries ORDER BY category LIMIT 20"),
+    safeQuery("SELECT key, value FROM settings WHERE key IN ('agent_name', 'agent_identity', 'owner_name', 'business_name', 'timezone', 'operating_hours_start', 'operating_hours_end', 'notification_email', 'cc_email')"),
   ]);
 
   const settingsMap: Record<string, string> = {};
-  settingsRes.rows.forEach((r: { key: string; value: string }) => {
+  settingsRows.forEach((r: { key: string; value: string }) => {
     settingsMap[r.key] = typeof r.value === 'string' ? r.value.replace(/"/g, '') : String(r.value);
   });
 
-  const memoryFacts = factsRes.rows.map(
+  const memoryFacts = factsRows.map(
     (f: { key: string; value: string; category: string }) => `[${f.category}] ${f.key}: ${f.value}`
   );
 
-  const knowledgeSummary = knowledgeRes.rows.map(
+  const knowledgeSummary = knowledgeRows.map(
     (k: { title: string; content: string; category: string }) =>
       `[${k.category}] ${k.title}: ${(k.content || '').slice(0, 200)}`
   );
