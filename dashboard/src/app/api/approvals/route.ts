@@ -41,13 +41,13 @@ export async function GET(request: NextRequest) {
 
 // Initiate a multi-turn voice call via OpenClaw Voice Call Plugin
 // Falls back to direct Twilio TwiML if OpenClaw is unreachable
-async function executeApprovedCall(approval: { id: string; task_id: string; notes: string }) {
+async function executeApprovedCall(approval: { id: string; task_id: string | null; notes: string }) {
   try {
     // Extract phone number from approval notes or task
     let phoneNumber: string | null = null;
     let callPurpose = 'Approved call';
 
-    // Try to extract from notes (format: "Call X at +number: purpose")
+    // Try to extract from notes (format: "Call +number: purpose")
     if (approval.notes) {
       const phoneMatch = approval.notes.match(/\+[1-9]\d{6,14}/);
       if (phoneMatch) phoneNumber = phoneMatch[0];
@@ -75,9 +75,12 @@ async function executeApprovedCall(approval: { id: string; task_id: string; note
       return;
     }
 
-    // Get task info for the call context
-    const taskRes = await pool.query('SELECT title, contact_name, description FROM tasks WHERE id = $1', [approval.task_id]);
-    const task = taskRes.rows[0];
+    // Get task info for the call context (may be null if no task linked)
+    let task: { title?: string; contact_name?: string; description?: string } | null = null;
+    if (approval.task_id) {
+      const taskRes = await pool.query('SELECT title, contact_name, description FROM tasks WHERE id = $1', [approval.task_id]);
+      task = taskRes.rows[0] || null;
+    }
     const contactName = task?.contact_name || 'the contact';
 
     // ── Try OpenClaw Voice Call Plugin first (multi-turn conversations) ──
@@ -100,17 +103,22 @@ CALL DETAILS:
 - Contact: ${contactName}
 - Purpose: ${callPurpose}
 - Task: ${task?.title || 'Unknown task'}
-- Task ID: ${approval.task_id}
+- Task ID: ${approval.task_id || 'none'}
 
 INSTRUCTIONS:
 1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
 2. Introduce yourself as ${agentCtx.identity.phoneIdentity}, calling on behalf of ${agentCtx.identity.owner}
 3. Explain the purpose: ${callPurpose}
-4. Have a professional multi-turn conversation
+4. Have a professional multi-turn conversation — ask questions, negotiate, confirm details
 5. When the call is complete, use voice_call with action "end_call"
-6. After the call, update the task with call results using the database
+6. After the call, report results back to the dashboard:
+   - Update the task in the database: db.sh complete-task "${approval.task_id || ''}" or db.sh query "UPDATE tasks SET description = description || '...' WHERE id = '${approval.task_id || ''}'"
+   - Send a callback to the dashboard webhook:
+     web_fetch POST http://127.0.0.1:3000/api/openclaw/callback with JSON body:
+     {"type":"call_status","task_id":"${approval.task_id || ''}","data":{"status":"completed","phone_number":"${phoneNumber}","summary":"<call summary>","duration":<seconds>}}
+     Include header: Authorization: Bearer ${hookToken}
 
-Remember: You are Bob. Be professional, warm, and efficient.`;
+Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${agentCtx.identity.phoneIdentity}. Be professional, warm, and efficient.`;
 
         const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
           method: 'POST',
@@ -124,7 +132,7 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
             deliver: true,
             timeoutSeconds: 120,
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(130000),
         });
 
         if (hookRes.ok) {
@@ -134,23 +142,25 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
           await pool.query(
             `INSERT INTO calls (task_id, direction, phone_number, caller_name, status, summary, created_at)
              VALUES ($1, 'outbound', $2, $3, 'initiated', $4, NOW())`,
-            [approval.task_id, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
+            [approval.task_id || null, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
           );
 
-          // Update task status
-          await pool.query(
-            "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
-            [approval.task_id]
-          );
+          // Update task status if linked
+          if (approval.task_id) {
+            await pool.query(
+              "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
+              [approval.task_id]
+            );
+          }
 
           // Success notification
           await pool.query(
             `INSERT INTO notifications (type, title, message, related_task_id)
              VALUES ('call_completed', $1, $2, $3)`,
             [
-              `Call initiated to ${contactName}`,
-              `Multi-turn voice call placed to ${phoneNumber} for task "${task?.title || 'Unknown'}". OpenClaw is managing the conversation.`,
-              approval.task_id,
+              `Call initiated to ${phoneNumber}`,
+              `Voice call placed to ${phoneNumber}: ${callPurpose}. OpenClaw is managing the conversation.`,
+              approval.task_id || null,
             ]
           );
 
@@ -206,23 +216,25 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
       await pool.query(
         `INSERT INTO calls (twilio_call_sid, task_id, direction, phone_number, caller_name, status, summary, created_at)
          VALUES ($1, $2, 'outbound', $3, $4, 'pending', $5, NOW())`,
-        [callData.sid, approval.task_id, phoneNumber, contactName, `Fallback TwiML call: ${callPurpose}`]
+        [callData.sid, approval.task_id || null, phoneNumber, contactName, `Fallback TwiML call: ${callPurpose}`]
       );
 
-      // Update task status
-      await pool.query(
-        "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
-        [approval.task_id]
-      );
+      // Update task status if linked
+      if (approval.task_id) {
+        await pool.query(
+          "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
+          [approval.task_id]
+        );
+      }
 
       // Success notification
       await pool.query(
         `INSERT INTO notifications (type, title, message, related_task_id)
          VALUES ('call_completed', $1, $2, $3)`,
         [
-          `Call initiated to ${contactName}`,
-          `One-way call placed to ${phoneNumber} for task "${task?.title || 'Unknown'}". Call SID: ${callData.sid}. Note: OpenClaw was unavailable, used direct Twilio fallback.`,
-          approval.task_id,
+          `Call initiated to ${phoneNumber}`,
+          `Voice call placed to ${phoneNumber}: ${callPurpose}. Call SID: ${callData.sid}. (Twilio direct fallback)`,
+          approval.task_id || null,
         ]
       );
 
@@ -262,7 +274,7 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
           [
             `Call failed — retry ${retryCount + 1}/${maxRetries} scheduled`,
             `Call to ${approval.notes || 'unknown'} failed: ${errMsg}. Retrying in ${delay / 60000} minutes.`,
-            approval.task_id,
+            approval.task_id || null,
           ]
         );
 
@@ -278,14 +290,16 @@ Remember: You are Bob. Be professional, warm, and efficient.`;
           [
             `Call failed — all retries exhausted`,
             `Failed to place call after ${maxRetries} attempts. Last error: ${errMsg}. Please try manually or check the phone number.`,
-            approval.task_id,
+            approval.task_id || null,
           ]
         );
 
-        await pool.query(
-          "UPDATE tasks SET status = 'failed', updated_at = NOW() WHERE id = $1",
-          [approval.task_id]
-        );
+        if (approval.task_id) {
+          await pool.query(
+            "UPDATE tasks SET status = 'failed', updated_at = NOW() WHERE id = $1",
+            [approval.task_id]
+          );
+        }
       }
     } catch (retryError) {
       console.error('Retry scheduling failed:', retryError);
@@ -326,14 +340,17 @@ export async function PATCH(request: NextRequest) {
 
     const approval = result.rows[0];
 
-    // If approved, update the related task status and execute the action
-    if (status === 'approved' && approval.task_id) {
-      await pool.query(
-        "UPDATE tasks SET status = 'approved', updated_at = NOW() WHERE id = $1",
-        [approval.task_id]
-      );
+    // If approved, execute the action
+    if (status === 'approved') {
+      // Update linked task status if present
+      if (approval.task_id) {
+        await pool.query(
+          "UPDATE tasks SET status = 'approved', updated_at = NOW() WHERE id = $1",
+          [approval.task_id]
+        );
+      }
 
-      // If this is a make_call approval, actually initiate the call via Twilio
+      // If this is a make_call approval, actually initiate the call
       if (approval.action_type === 'make_call') {
         // Fire-and-forget: initiate the call in the background
         executeApprovedCall(approval).catch((err) => {
@@ -341,31 +358,33 @@ export async function PATCH(request: NextRequest) {
         });
       }
 
-      // Also trigger OpenClaw webhook for any other action processing
-      try {
-        const taskResult = await pool.query('SELECT title FROM tasks WHERE id = $1', [approval.task_id]);
-        const taskTitle = taskResult.rows[0]?.title || 'Unknown task';
-        
-        const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
-        if (hookToken) {
-          const agentCtx = await getAgentContext();
-          const contextBlock = formatContextForHook(agentCtx);
+      // Also trigger OpenClaw webhook for non-call actions with linked tasks
+      if (approval.action_type !== 'make_call' && approval.task_id) {
+        try {
+          const taskResult = await pool.query('SELECT title FROM tasks WHERE id = $1', [approval.task_id]);
+          const taskTitle = taskResult.rows[0]?.title || 'Unknown task';
+          
+          const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
+          if (hookToken) {
+            const agentCtx = await getAgentContext();
+            const contextBlock = formatContextForHook(agentCtx);
 
-          await fetch(`${process.env.OPENCLAW_URL || 'http://127.0.0.1:18789'}/hooks/agent`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${hookToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              message: `Execute approved task: ${taskTitle}. Task ID: ${approval.task_id}. Action type: ${approval.action_type}.\n\n${contextBlock}`,
-              name: `Approved: ${taskTitle}`,
-              deliver: true,
-            }),
-          });
+            await fetch(`${process.env.OPENCLAW_URL || 'http://127.0.0.1:18789'}/hooks/agent`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${hookToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                message: `Execute approved task: ${taskTitle}. Task ID: ${approval.task_id}. Action type: ${approval.action_type}.\n\n${contextBlock}`,
+                name: `Approved: ${taskTitle}`,
+                deliver: true,
+              }),
+            });
+          }
+        } catch (hookError) {
+          console.error('Failed to trigger OpenClaw hook:', hookError);
         }
-      } catch (hookError) {
-        console.error('Failed to trigger OpenClaw hook:', hookError);
       }
     }
 
@@ -379,14 +398,21 @@ export async function PATCH(request: NextRequest) {
 
     // Send email notification for approval status change
     try {
-      const taskResult = await pool.query('SELECT title, type FROM tasks WHERE id = $1', [approval.task_id]);
-      const taskTitle = taskResult.rows[0]?.title || 'Unknown task';
-      const taskType = taskResult.rows[0]?.type || 'unknown';
+      let taskTitle = 'Call request';
+      let taskType = approval.action_type;
+
+      if (approval.task_id) {
+        const taskResult = await pool.query('SELECT title, type FROM tasks WHERE id = $1', [approval.task_id]);
+        taskTitle = taskResult.rows[0]?.title || taskTitle;
+        taskType = taskResult.rows[0]?.type || taskType;
+      } else if (approval.notes) {
+        taskTitle = approval.notes;
+      }
 
       await notifyOwner(
-        `Task ${status === 'approved' ? 'Approved' : 'Rejected'}: ${taskTitle}`,
-        `Task "${taskTitle}" (${taskType}) has been ${status}.\n\nAction type: ${approval.action_type}\n${notes ? `Notes: ${notes}` : ''}\n\nView in dashboard: https://gloura.me/tasks`,
-        `<h3>Task ${status === 'approved' ? '✅ Approved' : '❌ Rejected'}: ${taskTitle}</h3>
+        `${status === 'approved' ? 'Approved' : 'Rejected'}: ${taskTitle}`,
+        `"${taskTitle}" (${taskType}) has been ${status}.\n\nAction type: ${approval.action_type}\n${notes ? `Notes: ${notes}` : ''}\n\nView in dashboard: https://gloura.me/tasks`,
+        `<h3>${status === 'approved' ? '✅ Approved' : '❌ Rejected'}: ${taskTitle}</h3>
          <p><strong>Type:</strong> ${taskType}</p>
          <p><strong>Action:</strong> ${approval.action_type}</p>
          ${notes ? `<p><strong>Notes:</strong> ${notes}</p>` : ''}

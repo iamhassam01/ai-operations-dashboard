@@ -96,7 +96,8 @@ At the end of your response, include EXACTLY this JSON block:
 async function processTaskInBackground(taskId: string, conversationId: string) {
   try {
     const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) return;
+    const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
+    if (!openaiKey && !hookToken) return;
 
     // Get task details
     const taskRes = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
@@ -139,16 +140,90 @@ async function processTaskInBackground(taskId: string, conversationId: string) {
       ? `\nMatching contacts found in database:\n${contactSearch.map((c: { name: string; phone_number: string; company: string; notes: string }) => `- ${c.name}: ${c.phone_number}${c.company ? ` (${c.company})` : ''}${c.notes ? ` — ${c.notes}` : ''}`).join('\n')}`
       : '';
 
-    // ── Step 1: Web Search ────────────────────────────────────────────
-    const searchQuery = `${task.title}${task.description ? ' ' + task.description.slice(0, 150) : ''} latest ${new Date().getFullYear()}`;
-    const webResults = await webSearch(searchQuery, openaiKey);
+    // ── Research via OpenClaw (primary) or direct OpenAI (fallback) ──
+    let researchContent = '';
+    const openclawUrl = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
 
-    if (webResults) {
-      await postActivity(conversationId, 'web_search_complete', 'Web results found', `Analyzing findings for "${task.title}"...`, taskId);
+    if (hookToken) {
+      try {
+        await postActivity(conversationId, 'research_started_openclaw', 'Agent researching', `OpenClaw is researching "${task.title}" with web search...`, taskId);
+
+        const researchMessage = `Research this task thoroughly. Use web_search to find the latest real-time information, then analyze and provide a well-formatted report.
+
+TASK DETAILS:
+- Title: ${task.title}
+- Type: ${task.type}
+- Priority: ${task.priority}
+- Description: ${task.description || 'No additional details'}
+- Contact: ${task.contact_name || 'Not specified'}
+- Phone: ${task.contact_phone || 'Not specified'}
+- Address: ${task.address || 'Not specified'}
+- Constraints: ${task.constraints || 'None'}
+- Preferred times: ${task.preferred_time_1 || 'Flexible'}
+${contactContext}
+
+OUTPUT FORMAT:
+- Use proper markdown with ## for sections, ### for subsections
+- Use **bold** for important terms, prices, and names
+- When comparing options, create a markdown table with columns like Option | Provider | Price | Key Features
+- After the table, provide a **Recommended Option** section
+- Keep response focused and actionable (400-600 words max excluding the JSON block)
+
+CALL DECISION RULES:
+Recommend a call ONLY when the task requires booking, reserving, negotiating, or following up with a specific business/person.
+DO NOT recommend a call for research, analysis, comparisons, or general information gathering.
+
+At the end, include EXACTLY this JSON block:
+<next_action>{"needs_call": true/false, "call_to": "name or business", "call_phone": "+number or null", "call_purpose": "reason", "summary": "1-sentence summary"}</next_action>`;
+
+        const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${hookToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: researchMessage,
+            name: `Research: ${task.title}`,
+            deliver: false,
+            timeoutSeconds: 120,
+          }),
+          signal: AbortSignal.timeout(130000),
+        });
+
+        if (hookRes.ok) {
+          const contentType = hookRes.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const hookData = await hookRes.json();
+            researchContent = typeof hookData === 'string'
+              ? hookData
+              : hookData.output || hookData.content || hookData.message || hookData.response || '';
+          } else {
+            researchContent = await hookRes.text();
+          }
+
+          if (researchContent) {
+            await pool.query(
+              `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+              ['task_research_openclaw', JSON.stringify({ task_id: taskId, title: task.title })]
+            );
+          }
+        }
+      } catch (err) {
+        console.error('OpenClaw research failed, falling back to direct OpenAI:', err);
+      }
     }
 
-    // ── Step 2: Analyze with GPT-4o ──────────────────────────────────
-    const userPrompt = `Research this task and provide well-formatted findings:
+    // ── Fallback: Web Search + GPT-4o Analysis ──
+    if (!researchContent && openaiKey) {
+      const searchQuery = `${task.title}${task.description ? ' ' + task.description.slice(0, 150) : ''} latest ${new Date().getFullYear()}`;
+      const webResults = await webSearch(searchQuery, openaiKey);
+
+      if (webResults) {
+        await postActivity(conversationId, 'web_search_complete', 'Web results found', `Analyzing findings for "${task.title}"...`, taskId);
+      }
+
+      const userPrompt = `Research this task and provide well-formatted findings:
 
 **Task:** ${task.title}
 **Type:** ${task.type}
@@ -164,32 +239,33 @@ ${webResults ? `\n--- WEB SEARCH RESULTS (use this real-time data) ---\n${webRes
 
 Based on all available information, provide a thorough, well-formatted research report. If comparing options, include a comparison table with pricing. Be specific with names, prices, and actionable details.`;
 
-    const researchStart = Date.now();
-    const researchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: RESEARCH_SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.5,
-        max_tokens: 1500,
-      }),
-      signal: AbortSignal.timeout(45000),
-    });
+      const researchStart = Date.now();
+      const researchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: RESEARCH_SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.5,
+          max_tokens: 1500,
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
 
-    if (!researchResponse.ok) {
-      throw new Error(`OpenAI research failed: ${researchResponse.status}`);
+      if (!researchResponse.ok) {
+        throw new Error(`OpenAI research failed: ${researchResponse.status}`);
+      }
+
+      const researchData = await researchResponse.json();
+      researchContent = researchData.choices?.[0]?.message?.content || '';
+      trackOpenAIUsage('chat/completions/research', 'gpt-4o', researchData.usage, Date.now() - researchStart).catch(() => {});
     }
-
-    const researchData = await researchResponse.json();
-    const researchContent = researchData.choices?.[0]?.message?.content || '';
-    trackOpenAIUsage('chat/completions/research', 'gpt-4o', researchData.usage, Date.now() - researchStart).catch(() => {});
 
     // Parse next action recommendation
     let nextAction = { needs_call: false, call_to: '', call_phone: '', call_purpose: '', summary: '' };
@@ -295,7 +371,7 @@ Based on all available information, provide a thorough, well-formatted research 
 
     await pool.query(
       `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-      ['task_research_completed', JSON.stringify({ task_id: taskId, title: task.title, needs_call: nextAction.needs_call, web_search_used: !!webResults, summary: nextAction.summary })],
+      ['task_research_completed', JSON.stringify({ task_id: taskId, title: task.title, needs_call: nextAction.needs_call, summary: nextAction.summary })],
     );
 
   } catch (error) {
@@ -481,6 +557,13 @@ function parseActions(content: string): { cleanContent: string; actions: Array<{
   return { cleanContent, actions };
 }
 
+// Validate UUID format
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function validUuid(val: unknown): string | null {
+  if (typeof val === 'string' && UUID_RE.test(val)) return val;
+  return null;
+}
+
 // Execute a parsed action against the database
 async function executeAction(action: { type: string; [key: string]: unknown }, conversationId: string) {
   const results: Array<{ action_type: string; success: boolean; data?: Record<string, unknown>; error?: string }> = [];
@@ -532,18 +615,19 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
     }
 
     case 'request_call_approval': {
+      const callTaskId = validUuid(action.task_id);
       // Create an approval request
       const approvalResult = await pool.query(
         `INSERT INTO approvals (task_id, action_type, status, notes)
          VALUES ($1, 'make_call', 'pending', $2)
          RETURNING id`,
-        [action.task_id || null, `Call ${action.phone_number}: ${action.purpose}`]
+        [callTaskId, `Call ${action.phone_number}: ${action.purpose}`]
       );
 
       await pool.query(
         `INSERT INTO notifications (type, title, message, related_task_id)
          VALUES ('approval_required', $1, $2, $3)`,
-        ['Call approval needed', `Agent wants to call ${action.phone_number}: ${action.purpose}`, action.task_id || null]
+        ['Call approval needed', `Agent wants to call ${action.phone_number}: ${action.purpose}`, callTaskId]
       );
 
       await pool.query(
@@ -565,32 +649,33 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
     }
 
     case 'update_task': {
-      if (action.task_id && action.status) {
+      const updateTaskId = validUuid(action.task_id);
+      if (updateTaskId && action.status) {
         await pool.query(
           `UPDATE tasks SET status = $1, updated_at = NOW() WHERE id = $2`,
-          [action.status, action.task_id]
+          [action.status, updateTaskId]
         );
 
         if (action.notes) {
           await pool.query(
             `UPDATE tasks SET description = COALESCE(description, '') || E'\n\n---\n**Update:** ' || $1 WHERE id = $2`,
-            [action.notes as string, action.task_id]
+            [action.notes as string, updateTaskId]
           );
         }
 
         await pool.query(
           `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-          ['task_updated', JSON.stringify({ task_id: action.task_id, new_status: action.status, notes: action.notes, source: 'chat' })]
+          ['task_updated', JSON.stringify({ task_id: updateTaskId, new_status: action.status, notes: action.notes, source: 'chat' })]
         );
 
         // Create notification for task status change
         await pool.query(
           `INSERT INTO notifications (type, title, message, related_task_id)
            VALUES ('task_update', $1, $2, $3)`,
-          [`Task ${action.status}: ${action.task_id}`, `Task status changed to ${action.status}${action.notes ? ': ' + action.notes : ''}`, action.task_id as string]
+          [`Task ${action.status}: ${updateTaskId}`, `Task status changed to ${action.status}${action.notes ? ': ' + action.notes : ''}`, updateTaskId]
         );
 
-        results.push({ action_type: 'task_updated', success: true, data: { task_id: action.task_id as string } });
+        results.push({ action_type: 'task_updated', success: true, data: { task_id: updateTaskId } });
       }
       break;
     }
@@ -714,17 +799,78 @@ export async function POST(
     // Build the system prompt with full DB context
     const systemContext = await buildSystemContext();
 
-    // Build messages array for the LLM
-    const llmMessages = [
-      { role: 'system', content: systemContext },
-      ...history.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
-    ];
-
-    // Call the LLM directly via OpenAI API
-    let assistantContent: string;
+    // ── PRIMARY: Route through OpenClaw agent (full agentic loop) ──────
+    let assistantContent: string = '';
+    const openclawUrl = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
+    const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
     const openaiKey = process.env.OPENAI_API_KEY;
-    if (openaiKey) {
+
+    if (hookToken) {
       try {
+        const historyText = history
+          .map((m: { role: string; content: string }) =>
+            `${m.role === 'user' ? 'User' : 'Bob'}: ${m.content}`)
+          .join('\n\n');
+
+        const hookMessage = `You are responding to a dashboard chat message. Use your full capabilities (web_search, database via db.sh, memory, voice_call, etc.) to help the user.
+
+${systemContext}
+
+--- CONVERSATION HISTORY ---
+${historyText}
+
+User: ${message.trim()}
+--- END CONVERSATION ---
+
+Respond naturally to the user's latest message. If you need the dashboard to execute an action (create task, request approval, store memory, update task, send email, create calendar event, check calendar), include it using <action> tags as described above. Use your tools as needed for research, lookups, and context.`;
+
+        const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${hookToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: hookMessage,
+            name: `Chat: ${message.trim().slice(0, 50)}`,
+            sessionKey: `chat-${conversationId}`,
+            deliver: false,
+            timeoutSeconds: 60,
+          }),
+          signal: AbortSignal.timeout(65000),
+        });
+
+        if (hookRes.ok) {
+          const contentType = hookRes.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const hookData = await hookRes.json();
+            assistantContent = typeof hookData === 'string'
+              ? hookData
+              : hookData.output || hookData.content || hookData.message || hookData.response || '';
+          } else {
+            assistantContent = await hookRes.text();
+          }
+
+          if (assistantContent) {
+            await pool.query(
+              `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+              ['chat_openclaw', JSON.stringify({ conversation_id: conversationId, session_key: `chat-${conversationId}` })]
+            );
+          }
+        }
+      } catch (err) {
+        console.error('OpenClaw chat failed, falling back to direct OpenAI:', err);
+      }
+    }
+
+    // ── FALLBACK: Direct OpenAI if OpenClaw unavailable ────────────────
+    if (!assistantContent && openaiKey) {
+      try {
+        const llmMessages = [
+          { role: 'system', content: systemContext },
+          ...history.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
+        ];
+
         const chatStart = Date.now();
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -759,8 +905,6 @@ export async function POST(
         console.error('OpenAI API fetch error:', err);
         assistantContent = await generateFallbackResponse(message.trim(), systemContext);
       }
-    } else {
-      assistantContent = "I'm not configured yet — the OPENAI_API_KEY environment variable is missing. Please add it to the ecosystem config and restart PM2.";
     }
 
     if (!assistantContent) {

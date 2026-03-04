@@ -53,6 +53,40 @@ Use the `voice_call` tool with these actions:
 - Script: `~/.openclaw/workspace/scripts/calendar.sh` (when available)
 - Calendar email: ivankorn.assistant@gmail.com
 
+## Dashboard Callback API
+After completing an action (call, research, task update), report results back to the dashboard:
+
+**Endpoint:** `POST http://127.0.0.1:3000/api/openclaw/callback`
+**Auth:** `Authorization: Bearer <OPENCLAW_HOOK_TOKEN>` (same token used for hooks)
+
+### Callback Types:
+
+**Chat follow-back** — Post a message into an active chat conversation:
+```json
+{"type":"chat_message","conversation_id":"<uuid>","message":"<your message text>"}
+```
+
+**Call status update** — Report voice call results:
+```json
+{"type":"call_status","task_id":"<uuid>","data":{"call_id":"<id>","phone_number":"+...","status":"completed","summary":"<call summary>","duration":120,"transcript":"<full transcript>"}}
+```
+
+**Task update** — Update a task with results:
+```json
+{"type":"task_update","task_id":"<uuid>","data":{"status":"completed","description":"<findings to append>","summary":"<one-line summary>"}}
+```
+
+**Proactive notification** — Send a notification to the dashboard:
+```json
+{"type":"notification","message":"<notification text>","data":{"notification_type":"agent_update","title":"<notification title>"}}
+```
+
+### Follow-Back Rules
+- After completing a voice call, ALWAYS send a call_status callback with the summary and transcript
+- After researching a task, send a task_update callback with findings
+- For important updates (morning reports, reminders), use the notification callback
+- Use web_fetch tool to POST to the callback endpoint
+
 ## Safety
 - Always validate SQL inputs
 - Never expose database credentials in responses

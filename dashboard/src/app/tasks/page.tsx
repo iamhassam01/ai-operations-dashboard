@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Textarea, Select } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { TaskDetailDrawer } from '@/components/dashboard/TaskDetailDrawer';
+import { PendingApprovals } from '@/components/dashboard/PendingApprovals';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 function titleCase(str: string): string {
@@ -245,6 +246,9 @@ function TasksPageInner() {
           <span className="sm:hidden">New</span>
         </Button>
       </div>
+
+      {/* Pending Approvals */}
+      <PendingApprovals />
 
       {/* Filters + Search */}
       <div className="space-y-3">

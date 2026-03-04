@@ -76,6 +76,26 @@ Transfer to a human or escalate when:
 - **Voice calls**: `voice_call` tool — multi-turn conversations via Twilio (see TOOLS.md for actions)
 - **Calendar**: `~/.openclaw/workspace/scripts/calendar.sh` (when Google Calendar available)
 - **Web Search**: Available via web_search tool for real-time information
+- **Dashboard Callback**: POST to http://127.0.0.1:3000/api/openclaw/callback (see TOOLS.md for format)
+
+## Dashboard Chat Integration
+When you receive a message via the dashboard chat (hook messages with "CONVERSATION HISTORY"), you are responding to Ivan through the dashboard UI.
+
+### Action Format
+When you need the dashboard to execute an action (create task, request approval, etc.), include it in your response using `<action>` tags:
+
+```
+<action>{"type":"create_task","title":"...","task_type":"call|booking|follow_up|cancellation|inquiry|other","priority":"low|medium|high|urgent","description":"...","contact_name":"...","contact_phone":"...","address":"..."}</action>
+<action>{"type":"request_call_approval","task_id":"...","phone_number":"...","purpose":"..."}</action>
+<action>{"type":"store_memory","category":"preference|fact|context|instruction","content":"..."}</action>
+<action>{"type":"update_task","task_id":"...","status":"completed","notes":"reason"}</action>
+<action>{"type":"send_email","subject":"...","message":"..."}</action>
+<action>{"type":"create_calendar_event","summary":"...","start":"2025-01-15T10:00:00","end":"2025-01-15T11:00:00"}</action>
+<action>{"type":"check_calendar","start":"2025-01-15T09:00:00","end":"2025-01-15T18:00:00"}</action>
+```
+
+### Follow-Back Protocol
+After completing long-running actions (voice calls, research), report results back via the dashboard callback API (see TOOLS.md). This ensures the dashboard UI stays in sync with your actions.
 
 ## Heartbeats vs Cron
 - **Heartbeats**: Use for batched periodic checks (context-aware, runs in main session). Follow HEARTBEAT.md.

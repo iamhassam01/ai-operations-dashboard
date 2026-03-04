@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
             deliver: false,
             timeoutSeconds: 30,
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(35000),
         });
 
         if (ocResponse.ok) {
