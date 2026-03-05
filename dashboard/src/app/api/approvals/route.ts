@@ -136,12 +136,10 @@ Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${a
         });
 
         if (hookRes.ok) {
-          openclawSuccess = true;
-
-          // Create call record in database
+          // Create call record in database (status must be in CHECK constraint)
           await pool.query(
             `INSERT INTO calls (task_id, direction, phone_number, caller_name, status, summary, created_at)
-             VALUES ($1, 'outbound', $2, $3, 'initiated', $4, NOW())`,
+             VALUES ($1, 'outbound', $2, $3, 'in_progress', $4, NOW())`,
             [approval.task_id || null, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
           );
 
@@ -169,6 +167,8 @@ Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${a
             `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
             ['call_initiated_openclaw', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, mode: 'conversation' })]
           );
+
+          openclawSuccess = true;
         }
       } catch (hookError) {
         console.error('OpenClaw voice call failed, falling back to Twilio:', hookError);
