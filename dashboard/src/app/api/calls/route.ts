@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { syncOpenClawCalls } from '@/lib/openclaw-sync';
 
 export async function GET(request: NextRequest) {
   try {
+    // Fire-and-forget: sync OpenClaw call outcomes in the background
+    // This catches completed/failed calls that OpenClaw never called back about
+    syncOpenClawCalls().catch((err) => {
+      console.error('Background OpenClaw sync error:', err);
+    });
+
     const searchParams = request.nextUrl.searchParams;
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
     const direction = searchParams.get('direction');
