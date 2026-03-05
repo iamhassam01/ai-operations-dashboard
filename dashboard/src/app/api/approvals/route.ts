@@ -90,6 +90,14 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
 
     if (hookToken) {
       try {
+        // Create call record FIRST so we can pass the call_id to OpenClaw for callbacks
+        const callInsertRes = await pool.query(
+          `INSERT INTO calls (task_id, direction, phone_number, caller_name, status, summary, created_at)
+           VALUES ($1, 'outbound', $2, $3, 'in_progress', $4, NOW()) RETURNING id`,
+          [approval.task_id || null, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
+        );
+        const callId = callInsertRes.rows[0].id;
+
         // Gather agent context (memory, knowledge, settings) for the hook
         const agentCtx = await getAgentContext();
         const contextBlock = formatContextForHook(agentCtx);
@@ -104,6 +112,7 @@ CALL DETAILS:
 - Purpose: ${callPurpose}
 - Task: ${task?.title || 'Unknown task'}
 - Task ID: ${approval.task_id || 'none'}
+- Dashboard Call ID: ${callId}
 
 INSTRUCTIONS:
 1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
@@ -111,12 +120,11 @@ INSTRUCTIONS:
 3. Explain the purpose: ${callPurpose}
 4. Have a professional multi-turn conversation — ask questions, negotiate, confirm details
 5. When the call is complete, use voice_call with action "end_call"
-6. After the call, report results back to the dashboard:
-   - Update the task in the database: db.sh complete-task "${approval.task_id || ''}" or db.sh query "UPDATE tasks SET description = description || '...' WHERE id = '${approval.task_id || ''}'"
-   - Send a callback to the dashboard webhook:
-     web_fetch POST http://127.0.0.1:3000/api/openclaw/callback with JSON body:
-     {"type":"call_status","task_id":"${approval.task_id || ''}","data":{"status":"completed","phone_number":"${phoneNumber}","summary":"<call summary>","duration":<seconds>}}
-     Include header: Authorization: Bearer ${hookToken}
+6. IMPORTANT: After the call ends, you MUST report the results back to the dashboard by running:
+   web_fetch POST http://127.0.0.1:3000/api/openclaw/callback with JSON body:
+   {"type":"call_status","task_id":"${approval.task_id || ''}","data":{"call_id":"${callId}","phone_number":"${phoneNumber}","status":"completed","summary":"<your call summary here>","duration":<call duration in seconds>,"transcript":"<conversation transcript>"}}
+   Include header: Authorization: Bearer ${hookToken}
+   This callback is REQUIRED — the dashboard tracks call status from it.
 
 Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${agentCtx.identity.phoneIdentity}. Be professional, warm, and efficient.`;
 
@@ -136,13 +144,6 @@ Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${a
         });
 
         if (hookRes.ok) {
-          // Create call record in database (status must be in CHECK constraint)
-          await pool.query(
-            `INSERT INTO calls (task_id, direction, phone_number, caller_name, status, summary, created_at)
-             VALUES ($1, 'outbound', $2, $3, 'in_progress', $4, NOW())`,
-            [approval.task_id || null, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
-          );
-
           // Update task status if linked
           if (approval.task_id) {
             await pool.query(
@@ -165,10 +166,16 @@ Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${a
           // Log success
           await pool.query(
             `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-            ['call_initiated_openclaw', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, mode: 'conversation' })]
+            ['call_initiated_openclaw', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, call_id: callId, mode: 'conversation' })]
           );
 
           openclawSuccess = true;
+        } else {
+          // Hook failed — mark call as failed so it doesn't stay stuck
+          await pool.query(
+            `UPDATE calls SET status = 'failed', summary = $1 WHERE id = $2`,
+            [`OpenClaw hook failed with HTTP ${hookRes.status}`, callId]
+          );
         }
       } catch (hookError) {
         console.error('OpenClaw voice call failed, falling back to Twilio:', hookError);

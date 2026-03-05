@@ -81,11 +81,11 @@ After completing an action (call, research, task update), report results back to
 {"type":"notification","message":"<notification text>","data":{"notification_type":"agent_update","title":"<notification title>"}}
 ```
 
-### Follow-Back Rules
-- After completing a voice call, ALWAYS send a call_status callback with the summary and transcript
+### Follow-Back Rules — MANDATORY
+- After completing OR failing a voice call, you MUST send a call_status callback with the summary, transcript, and the Dashboard Call ID provided in the hook message. This is NON-OPTIONAL — the dashboard tracks call status from this callback. Without it, calls appear stuck as "in_progress" forever.
 - After researching a task, send a task_update callback with findings
 - For important updates (morning reports, reminders), use the notification callback
-- Use web_fetch tool to POST to the callback endpoint
+- Use web_fetch tool to POST to the callback endpoint with Authorization: Bearer <OPENCLAW_HOOK_TOKEN> header
 
 ## Safety
 - Always validate SQL inputs

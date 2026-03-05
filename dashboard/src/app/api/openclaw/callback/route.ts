@@ -52,13 +52,28 @@ export async function POST(request: NextRequest) {
         const { call_id, phone_number, status, summary, duration, transcript } = data || {};
 
         if (call_id) {
+          // Match by call UUID or Twilio SID
           await pool.query(
             `UPDATE calls SET status = $1, summary = COALESCE($2, summary),
              duration_seconds = COALESCE($3, duration_seconds),
              transcript = COALESCE($4, transcript),
-             updated_at = NOW()
+             ended_at = NOW()
              WHERE id = $5 OR twilio_call_sid = $5`,
             [status || 'completed', summary, duration, transcript, call_id]
+          );
+        } else if (phone_number) {
+          // Fallback: match by phone number on the most recent in_progress call
+          await pool.query(
+            `UPDATE calls SET status = $1, summary = COALESCE($2, summary),
+             duration_seconds = COALESCE($3, duration_seconds),
+             transcript = COALESCE($4, transcript),
+             ended_at = NOW()
+             WHERE id = (
+               SELECT id FROM calls
+               WHERE phone_number = $5 AND status = 'in_progress'
+               ORDER BY created_at DESC LIMIT 1
+             )`,
+            [status || 'completed', summary, duration, transcript, phone_number]
           );
         }
 
