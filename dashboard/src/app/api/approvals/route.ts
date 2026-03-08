@@ -102,6 +102,10 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
         const agentCtx = await getAgentContext();
         const contextBlock = formatContextForHook(agentCtx);
 
+        // Construct the exact initial message the agent should speak on the call
+        // This is passed as the "message" parameter to voice_call(initiate_call)
+        const initialCallMessage = `Hello, this is ${agentCtx.identity.phoneIdentity}, calling on behalf of ${agentCtx.identity.owner}. I'm reaching out regarding: ${callPurpose}.`;
+
         const agentMessage = `You have been approved to make a phone call. Use the voice_call tool to initiate a multi-turn conversation.
 
 ${contextBlock}
@@ -115,18 +119,21 @@ CALL DETAILS:
 - Dashboard Call ID: ${callId}
 
 INSTRUCTIONS:
-1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode
-2. Introduce yourself as ${agentCtx.identity.phoneIdentity}, calling on behalf of ${agentCtx.identity.owner}
-3. Explain the purpose: ${callPurpose}
-4. Have a professional multi-turn conversation — ask questions, negotiate, confirm details
-5. When the call is complete, use voice_call with action "end_call"
-6. IMPORTANT: After the call ends, you MUST report the results back to the dashboard by running:
+1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode.
+   You MUST use this EXACT text as the "message" parameter:
+   "${initialCallMessage}"
+   DO NOT modify this message. DO NOT use a generic greeting like "How can I help you?"
+   You are the CALLER — you must state the purpose immediately.
+2. Have a professional multi-turn conversation — listen, respond to questions, negotiate, confirm details
+3. The purpose of this call: ${callPurpose}
+4. When the call is complete, use voice_call with action "end_call"
+5. IMPORTANT: After the call ends, you MUST report the results back to the dashboard by running:
    web_fetch POST http://127.0.0.1:3000/api/openclaw/callback with JSON body:
    {"type":"call_status","task_id":"${approval.task_id || ''}","data":{"call_id":"${callId}","phone_number":"${phoneNumber}","status":"completed","summary":"<your call summary here>","duration":<call duration in seconds>,"transcript":"<conversation transcript>"}}
    Include header: Authorization: Bearer ${hookToken}
    This callback is REQUIRED — the dashboard tracks call status from it.
 
-Remember: You are ${agentCtx.identity.name}. On calls, introduce yourself as ${agentCtx.identity.phoneIdentity}. Be professional, warm, and efficient.`;
+Remember: You are ${agentCtx.identity.name}. On calls, you are ${agentCtx.identity.phoneIdentity}. Be professional, warm, and efficient. NEVER ask "How can I help you?" on outbound calls — YOU are calling THEM with a specific purpose.`;
 
         const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
           method: 'POST',
