@@ -15,33 +15,20 @@ export async function GET() {
     checks.database = { status: 'error', detail: 'PostgreSQL unreachable' };
   }
 
-  // 2. OpenClaw check
+  // 2. OpenClaw check — gateway serves HTML UI at root (no JSON status endpoint)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     const ocUrl = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
-    const res = await fetch(`${ocUrl}/api/v1/status`, {
+    const res = await fetch(ocUrl, {
       signal: controller.signal,
-      headers: process.env.OPENCLAW_TOKEN
-        ? { 'Authorization': `Bearer ${process.env.OPENCLAW_TOKEN}` }
-        : {},
     });
     clearTimeout(timeout);
     checks.openclaw = res.ok
       ? { status: 'connected', detail: 'OpenClaw Active' }
       : { status: 'error', detail: `OpenClaw returned ${res.status}` };
   } catch {
-    // Try a simpler health ping
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      const ocUrl = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
-      const res = await fetch(ocUrl, { signal: controller.signal });
-      clearTimeout(timeout);
-      checks.openclaw = { status: 'connected', detail: `OpenClaw responding (${res.status})` };
-    } catch {
-      checks.openclaw = { status: 'error', detail: 'OpenClaw unreachable' };
-    }
+    checks.openclaw = { status: 'error', detail: 'OpenClaw unreachable' };
   }
 
   // 3. Twilio check
