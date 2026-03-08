@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Initiate a multi-turn voice call via OpenClaw Voice Call Plugin
-// Falls back to direct Twilio TwiML if OpenClaw is unreachable
+// Initiate a voice call via Vapi (primary) or Twilio TwiML fallback
+// Falls back to direct Twilio TwiML if Vapi is not configured or fails
 async function executeApprovedCall(approval: { id: string; task_id: string | null; notes: string }) {
   try {
     // Extract phone number from approval notes or task
@@ -51,7 +51,10 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
     if (approval.notes) {
       const phoneMatch = approval.notes.match(/\+[1-9]\d{6,14}/);
       if (phoneMatch) phoneNumber = phoneMatch[0];
-      callPurpose = approval.notes;
+      // Strip "Call +phone:" prefix — prevents phone numbers being spoken aloud by TTS
+      callPurpose = approval.notes
+        .replace(/^Call\s+\+?[\d\s\-()]{6,20}:\s*/i, '')
+        .trim() || 'Follow up on a business matter';
     }
 
     // Fallback: get from task contact_phone
@@ -83,124 +86,157 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
     }
     const contactName = task?.contact_name || 'the contact';
 
-    // ── Try OpenClaw Voice Call Plugin first (multi-turn conversations) ──
-    const openclawUrl = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
-    const hookToken = process.env.OPENCLAW_HOOK_TOKEN;
-    let openclawSuccess = false;
+    // ── Try Vapi Conversational Voice Call (primary) ──
+    const vapiApiKey = process.env.VAPI_API_KEY;
+    const vapiPhoneNumberId = process.env.VAPI_PHONE_NUMBER_ID;
+    let vapiSuccess = false;
 
-    if (hookToken) {
+    if (vapiApiKey && vapiPhoneNumberId) {
       try {
-        // Create call record FIRST so we can pass the call_id to OpenClaw for callbacks
+        // Create call record first to get our internal call ID
         const callInsertRes = await pool.query(
           `INSERT INTO calls (task_id, direction, phone_number, caller_name, status, summary, created_at)
            VALUES ($1, 'outbound', $2, $3, 'in_progress', $4, NOW()) RETURNING id`,
-          [approval.task_id || null, phoneNumber, contactName, `Multi-turn call via OpenClaw: ${callPurpose}`]
+          [approval.task_id || null, phoneNumber, contactName, `Vapi outbound call: ${callPurpose}`]
         );
         const callId = callInsertRes.rows[0].id;
 
-        // Gather agent context (memory, knowledge, settings) for the hook
-        const agentCtx = await getAgentContext();
-        const contextBlock = formatContextForHook(agentCtx);
+        // Fetch agent identity from settings
+        const settingsRes = await pool.query(
+          `SELECT key, value FROM settings WHERE key IN ('agent_name', 'owner_name')`
+        );
+        const settingsMap: Record<string, string> = {};
+        for (const row of settingsRes.rows as { key: string; value: string }[]) {
+          settingsMap[row.key] = row.value;
+        }
+        const agentName = settingsMap['agent_name'] || 'Alex';
+        const ownerName = settingsMap['owner_name'] || 'the business owner';
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://gloura.me';
 
-        // Construct the exact initial message the agent should speak on the call
-        // This is passed as the "message" parameter to voice_call(initiate_call)
-        const initialCallMessage = `Hello, this is ${agentCtx.identity.phoneIdentity}, calling on behalf of ${agentCtx.identity.owner}. I'm reaching out regarding: ${callPurpose}.`;
+        const systemPrompt = `You are ${agentName}, a professional AI executive assistant calling on behalf of ${ownerName}.
 
-        const agentMessage = `You have been approved to make a phone call. Use the voice_call tool to initiate a multi-turn conversation.
+You have placed an OUTBOUND call to ${contactName}.
+Your specific reason for this call: ${callPurpose}
 
-${contextBlock}
+YOUR ROLE: You made this call. You are the CALLER with a known, specific purpose. You represent ${ownerName} professionally and have full authority to schedule, confirm, and communicate on their behalf.
 
-CALL DETAILS:
-- Phone number: ${phoneNumber}
-- Contact: ${contactName}
-- Purpose: ${callPurpose}
-- Task: ${task?.title || 'Unknown task'}
-- Task ID: ${approval.task_id || 'none'}
-- Dashboard Call ID: ${callId}
+LANGUAGE - STRICT RULE: You MUST speak ONLY in English for the ENTIRE call, regardless of what language the contact uses. Do NOT switch to Japanese, Russian, German, or any other language - not even briefly. If the contact cannot speak English: "I apologize, I am only able to assist in English. Is there someone available who speaks English? No? Thank you, have a great day." Then end the call.
 
-INSTRUCTIONS:
-1. Use voice_call with action "initiate_call" to call ${phoneNumber} in "conversation" mode.
-   You MUST use this EXACT text as the "message" parameter:
-   "${initialCallMessage}"
-   DO NOT modify this message. DO NOT use a generic greeting like "How can I help you?"
-   You are the CALLER — you must state the purpose immediately.
-2. Have a professional multi-turn conversation — listen, respond to questions, negotiate, confirm details
-3. The purpose of this call: ${callPurpose}
-4. When the call is complete, use voice_call with action "end_call"
-5. IMPORTANT: After the call ends, you MUST report the results back to the dashboard by running:
-   web_fetch POST http://127.0.0.1:3000/api/openclaw/callback with JSON body:
-   {"type":"call_status","task_id":"${approval.task_id || ''}","data":{"call_id":"${callId}","phone_number":"${phoneNumber}","status":"completed","summary":"<your call summary here>","duration":<call duration in seconds>,"transcript":"<conversation transcript>"}}
-   Include header: Authorization: Bearer ${hookToken}
-   This callback is REQUIRED — the dashboard tracks call status from it.
+ABSOLUTE RULES:
+- NEVER say "How can I help you?" or "How may I assist you?" - you know exactly why you called.
+- NEVER read phone numbers, order IDs, or internal reference codes aloud.
+- NEVER make up information or fabricate commitments you are not certain about.
+- Speak in 1-3 short sentences per turn. Warm, natural, professional - not robotic.
 
-Remember: You are ${agentCtx.identity.name}. On calls, you are ${agentCtx.identity.phoneIdentity}. Be professional, warm, and efficient. NEVER ask "How can I help you?" on outbound calls — YOU are calling THEM with a specific purpose.`;
+CONVERSATION FLOW:
+1. Your opening is handled by firstMessage automatically.
+2. Once confirmed you are speaking with ${contactName}: state your purpose clearly in natural language.
+3. Engage: listen, answer questions, confirm details, accomplish the purpose.
+4. Close naturally: "Perfect, thank you so much. Have a wonderful day! Goodbye."
 
-        const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
+SPECIAL SITUATIONS:
+VOICEMAIL: "Hi ${contactName}, this is ${agentName} calling on behalf of ${ownerName}. I am calling regarding ${callPurpose}. Please call us back at your convenience. Thank you, have a great day!" Then end the call immediately.
+WRONG NUMBER: "I am so sorry to have bothered you, I must have the wrong number. Have a great day!" Then end the call immediately.
+NOT AVAILABLE: "Could you let ${contactName} know that ${agentName} called on behalf of ${ownerName}? I will try again later. Thank you, have a good day." Then end the call.
+HOSTILE OR REFUSAL: "I completely understand. I will not take any more of your time. Have a good day. Goodbye." Then end the call immediately.`;
+
+        const vapiRes = await fetch('https://api.vapi.ai/call', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${hookToken}`,
+            'Authorization': `Bearer ${vapiApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            message: agentMessage,
-            name: `Call: ${contactName} — ${task?.title || 'Approved call'}`,
-            deliver: true,
-            timeoutSeconds: 120,
+            phoneNumberId: vapiPhoneNumberId,
+            customer: { number: phoneNumber, name: contactName },
+            assistant: {
+              name: `Outbound: ${contactName}`,
+              model: {
+                provider: 'openai',
+                model: 'gpt-4o',
+                temperature: 0.6,
+                maxTokens: 200,
+                messages: [{ role: 'system', content: systemPrompt }],
+              },
+              transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
+              voice: { provider: 'openai', voiceId: 'shimmer' },
+              firstMessage: `Hello, may I please speak with ${contactName}? This is ${agentName} calling on behalf of ${ownerName}.`,
+              serverUrl: `${baseUrl}/api/vapi/webhook`,
+              recordingEnabled: true,
+              endCallFunctionEnabled: true,
+            },
           }),
-          signal: AbortSignal.timeout(130000),
+          signal: AbortSignal.timeout(15000),
         });
 
-        if (hookRes.ok) {
-          // Update task status if linked
-          if (approval.task_id) {
-            await pool.query(
-              "UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1",
-              [approval.task_id]
-            );
-          }
+        if (!vapiRes.ok) {
+          const errData = await vapiRes.json().catch(() => ({}));
+          throw new Error(`Vapi API error ${vapiRes.status}: ${JSON.stringify(errData)}`);
+        }
 
-          // Success notification
-          await pool.query(
-            `INSERT INTO notifications (type, title, message, related_task_id)
-             VALUES ('call_completed', $1, $2, $3)`,
-            [
-              `Call initiated to ${phoneNumber}`,
-              `Voice call placed to ${phoneNumber}: ${callPurpose}. OpenClaw is managing the conversation.`,
-              approval.task_id || null,
-            ]
-          );
+        const vapiCallData = await vapiRes.json() as { id: string };
 
-          // Log success
-          await pool.query(
-            `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
-            ['call_initiated_openclaw', JSON.stringify({ approval_id: approval.id, task_id: approval.task_id, phone: phoneNumber, call_id: callId, mode: 'conversation' })]
-          );
+        // Store Vapi call ID so webhook events can match back to this record
+        await pool.query(
+          `UPDATE calls SET vapi_call_id = $1 WHERE id = $2`,
+          [vapiCallData.id, callId]
+        );
 
-          openclawSuccess = true;
-        } else {
-          // Hook failed — mark call as failed so it doesn't stay stuck
+        if (approval.task_id) {
           await pool.query(
-            `UPDATE calls SET status = 'failed', summary = $1 WHERE id = $2`,
-            [`OpenClaw hook failed with HTTP ${hookRes.status}`, callId]
+            `UPDATE tasks SET status = 'in_progress', updated_at = NOW() WHERE id = $1`,
+            [approval.task_id]
           );
         }
-      } catch (hookError) {
-        console.error('OpenClaw voice call failed, falling back to Twilio:', hookError);
+
+        await pool.query(
+          `INSERT INTO notifications (type, title, message, related_task_id)
+           VALUES ('call_completed', $1, $2, $3)`,
+          [
+            `Call initiated to ${phoneNumber}`,
+            `Vapi voice call placed to ${contactName} at ${phoneNumber}: ${callPurpose}`,
+            approval.task_id || null,
+          ]
+        );
+
+        await pool.query(
+          `INSERT INTO agent_logs (action, details, status) VALUES ($1, $2, 'success')`,
+          ['call_initiated_vapi', JSON.stringify({
+            approval_id: approval.id,
+            task_id: approval.task_id,
+            phone: phoneNumber,
+            call_id: callId,
+            vapi_call_id: vapiCallData.id,
+          })]
+        );
+
+        vapiSuccess = true;
+      } catch (vapiError) {
+        console.error('Vapi call failed, falling back to Twilio TwiML:', vapiError);
       }
     }
 
-    // ── Fallback: Direct Twilio TwiML (one-way) if OpenClaw failed ──
-    if (!openclawSuccess) {
+    // ── Fallback: Direct Twilio TwiML (one-way) if Vapi failed or not configured ──
+    if (!vapiSuccess) {
       const accountSid = process.env.TWILIO_ACCOUNT_SID;
       const authToken = process.env.TWILIO_AUTH_TOKEN;
       const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
       if (!accountSid || !authToken || !fromNumber) {
-        throw new Error('Neither OpenClaw nor Twilio are configured for voice calls');
+        throw new Error('Vapi is not configured and Twilio fallback credentials are missing');
       }
 
-      const agentIdentity = 'Mr. Ermakov';
-      const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity}, calling on behalf of Ivan Korn. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
+      // Use agent settings for identity (no hardcoded values)
+      const fallbackSettingsRes = await pool.query(
+        `SELECT key, value FROM settings WHERE key IN ('agent_identity', 'owner_name')`
+      );
+      const fbMap: Record<string, string> = {};
+      for (const row of fallbackSettingsRes.rows as { key: string; value: string }[]) {
+        fbMap[row.key] = typeof row.value === 'string' ? row.value.replace(/^"|"$/g, '') : String(row.value);
+      }
+      const agentIdentity = fbMap['agent_identity'] || 'the assistant';
+      const fbOwnerName = fbMap['owner_name'] || 'the business owner';
+      const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity}, calling on behalf of ${fbOwnerName}. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
 
       const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;
       const params = new URLSearchParams();

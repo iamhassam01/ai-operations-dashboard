@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Phone, Calendar, Bot, Check, Clock, Brain, Pencil, Trash2, X, BarChart3, RefreshCw, ExternalLink, Unplug } from 'lucide-react';
+import { Save, Phone, PhoneCall, Calendar, Bot, Check, Clock, Brain, Pencil, Trash2, X, BarChart3, RefreshCw, ExternalLink, Unplug } from 'lucide-react';
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'next/navigation';
@@ -232,6 +232,12 @@ export default function SettingsPage() {
       icon: Bot,
       status: (health?.services?.openclaw?.status as 'connected' | 'pending' | 'error') || 'pending',
       detail: health?.services?.openclaw?.detail || 'Checking...',
+    },
+    {
+      name: 'Vapi Voice Platform',
+      icon: PhoneCall,
+      status: (health?.services?.vapi?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.vapi?.detail || 'Checking...',
     },
     {
       name: 'Twilio Telephony',

@@ -100,3 +100,7 @@ AGENT_RESTRUCTURING_REFERENCE.md
 deploy/calendar_and_usage_migration.sql
 deploy/milestone2_migration.sql
 deploy/priority3_10_migration.sql
+
+VAPI_INTEGRATION_GUIDE.md
+
+vapi_migration.sql

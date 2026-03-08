@@ -160,7 +160,7 @@ export default function CallsPage() {
             className="mt-0.5 text-[var(--text-secondary)]"
             style={{ fontSize: 'var(--text-body-small)' }}
           >
-            View and manage all phone calls — Twilio connected
+            View and manage all phone calls — Vapi + Twilio
           </p>
         </div>
         <Button

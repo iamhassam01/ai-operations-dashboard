@@ -61,7 +61,36 @@ export async function GET() {
     checks.twilio = { status: 'pending', detail: 'Twilio not configured' };
   }
 
-  // 4. OpenAI check
+  // 4. Vapi Voice Platform check
+  const vapiKey = process.env.VAPI_API_KEY;
+  const vapiPhoneId = process.env.VAPI_PHONE_NUMBER_ID;
+  if (vapiKey) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch('https://api.vapi.ai/phone-number', {
+        signal: controller.signal,
+        headers: { 'Authorization': `Bearer ${vapiKey}` },
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        checks.vapi = {
+          status: 'connected',
+          detail: `Vapi Active${vapiPhoneId ? ' (phone configured)' : ' (no phone ID set)'}`,
+        };
+      } else if (res.status === 401 || res.status === 403) {
+        checks.vapi = { status: 'error', detail: 'Vapi API key invalid' };
+      } else {
+        checks.vapi = { status: 'error', detail: `Vapi error (${res.status})` };
+      }
+    } catch {
+      checks.vapi = { status: 'error', detail: 'Vapi unreachable' };
+    }
+  } else {
+    checks.vapi = { status: 'pending', detail: 'Vapi not configured — set VAPI_API_KEY' };
+  }
+
+  // 5. OpenAI check
   const openaiKey = process.env.OPENAI_API_KEY;
   if (openaiKey) {
     try {
