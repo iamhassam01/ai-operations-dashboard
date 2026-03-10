@@ -20,26 +20,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const pool = (await import('@/lib/db')).default;
+    const vapiApiKey = process.env.VAPI_API_KEY;
+    const vapiPhoneNumberId = process.env.VAPI_PHONE_NUMBER_ID;
+
+    // ── Primary: Vapi ──
+    if (vapiApiKey && vapiPhoneNumberId) {
+      const vapiRes = await fetch('https://api.vapi.ai/call', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${vapiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phoneNumberId: vapiPhoneNumberId,
+          customer: { number: toNumber },
+          assistant: {
+            firstMessage: 'Hello! This is a test call from your AI Operations Dashboard. Vapi integration is working correctly. Goodbye!',
+            model: {
+              provider: 'openai',
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: 'You are a test call assistant. Say the first message and then end the call politely.' }],
+            },
+            voice: { provider: 'openai', voiceId: 'shimmer' },
+            endCallAfterSilence: 5,
+          },
+        }),
+      });
+
+      const vapiData = await vapiRes.json();
+
+      if (!vapiRes.ok) {
+        console.error('Vapi test call error:', vapiData);
+        return NextResponse.json(
+          { error: vapiData.message || 'Vapi API error' },
+          { status: vapiRes.status }
+        );
+      }
+
+      await pool.query(
+        `INSERT INTO calls (id, vapi_call_id, direction, phone_number, caller_name, status, summary, created_at)
+         VALUES (gen_random_uuid(), $1, 'outbound', $2, 'Test Call', 'in_progress', $3, NOW())`,
+        [vapiData.id, toNumber, `Test call to ${toNumber}`]
+      );
+
+      return NextResponse.json({
+        success: true,
+        callSid: vapiData.id,
+        status: vapiData.status,
+        to: toNumber,
+        provider: 'vapi',
+      });
+    }
+
+    // ── Fallback: Twilio ──
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
     const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
     if (!accountSid || !authToken || !fromNumber) {
       return NextResponse.json(
-        { error: 'Twilio credentials not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in environment.' },
+        { error: 'Neither Vapi nor Twilio credentials are configured.' },
         { status: 500 }
       );
     }
 
-    // Use inline TwiML with recording enabled
-    const twiml = `<Response><Say voice="alice">Hello! This is a test call from your AI Operations Dashboard. The Twilio integration is working correctly. Goodbye!</Say><Pause length="1"/><Hangup/></Response>`;
-
-    // Build status callback URL for recording/status updates
+    const twiml = `<Response><Say voice="alice">Hello! This is a test call from your AI Operations Dashboard. The integration is working correctly. Goodbye!</Say><Pause length="1"/><Hangup/></Response>`;
     const host = request.headers.get('host') || '';
     const proto = request.headers.get('x-forwarded-proto') || 'https';
     const statusCallbackUrl = `${proto}://${host}/api/calls/status`;
-
-    // Make the call via Twilio REST API
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;
 
     const params = new URLSearchParams();
@@ -70,8 +119,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Log the call in our database with twilio_call_sid for status tracking
-    const pool = (await import('@/lib/db')).default;
     await pool.query(
       `INSERT INTO calls (id, twilio_call_sid, direction, phone_number, caller_name, status, summary, created_at)
        VALUES (gen_random_uuid(), $1, 'outbound', $2, 'Test Call', 'pending', $3, NOW())`,
@@ -84,6 +131,7 @@ export async function POST(request: NextRequest) {
       status: data.status,
       to: data.to,
       from: data.from,
+      provider: 'twilio',
     });
   } catch (error) {
     console.error('Test call error:', error);

@@ -58,8 +58,8 @@ export function ConnectionStatus() {
     {
       label: 'Telephony',
       icon: Phone,
-      status: (health?.services?.twilio?.status as 'connected' | 'pending' | 'error') || 'pending',
-      detail: health?.services?.twilio?.detail || 'Checking...',
+      status: (health?.services?.vapi?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.vapi?.detail || 'Checking...',
     },
     {
       label: 'Calendar',
@@ -74,8 +74,8 @@ export function ConnectionStatus() {
     {
       label: 'Recording',
       icon: Mic,
-      status: (health?.services?.twilio?.status as 'connected' | 'pending' | 'error') || 'pending',
-      detail: health?.services?.twilio?.status === 'connected' ? 'Via Twilio' : 'Requires Twilio',
+      status: (health?.services?.vapi?.status as 'connected' | 'pending' | 'error') || 'pending',
+      detail: health?.services?.vapi?.status === 'connected' ? 'Via Vapi' : 'Requires Vapi',
     },
   ];
 
