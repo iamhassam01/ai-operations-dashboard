@@ -186,7 +186,7 @@ export default function CallsPage() {
             </button>
           </div>
           <p className="text-xs text-[var(--text-secondary)]">
-            Enter a phone number in E.164 format to receive a test call from your Twilio number (+12272637593).
+            Enter a phone number in E.164 format to receive a test call from your Vapi number (+14157077408).
           </p>
           <div className="flex gap-2">
             <input
