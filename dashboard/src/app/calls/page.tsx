@@ -13,6 +13,9 @@ import {
   Loader2,
   CheckCircle2,
   FileText,
+  ShieldCheck,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
@@ -36,6 +39,17 @@ interface Call {
   task_title: string;
   task_id: string;
   captured_info: Record<string, string> | null;
+  created_at: string;
+}
+
+interface Approval {
+  id: string;
+  task_id: string;
+  action_type: string;
+  status: string;
+  notes: string;
+  task_title: string;
+  phone_number: string;
   created_at: string;
 }
 
@@ -89,6 +103,32 @@ export default function CallsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['calls'] });
       toast.success('Transcription complete');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Fetch pending call approvals
+  const { data: pendingApprovals } = useQuery<Approval[]>({
+    queryKey: ['pending-call-approvals'],
+    queryFn: () => fetch('/api/approvals').then(r => r.json()),
+    refetchInterval: 5000,
+    select: (data) => data.filter((a) => a.action_type === 'make_call' && a.status === 'pending'),
+  });
+
+  const approvalMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'approved' | 'rejected' }) =>
+      fetch('/api/approvals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      }).then(r => {
+        if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Failed'); });
+        return r.json();
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['pending-call-approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['calls'] });
+      toast.success(variables.status === 'approved' ? 'Call approved — placing now' : 'Call rejected');
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -218,6 +258,53 @@ export default function CallsPage() {
                 : testCallResult.error}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Pending Call Approvals */}
+      {pendingApprovals && pendingApprovals.length > 0 && (
+        <div className="space-y-2">
+          <OverlineHeading>Pending Approvals</OverlineHeading>
+          <div className="space-y-2 stagger-children">
+            {pendingApprovals.map((approval) => (
+              <div
+                key={approval.id}
+                className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-accent)] bg-[var(--surface-accent)] p-3 sm:p-4"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--status-warning-surface)]">
+                  <Clock size={16} className="text-warning" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-[var(--text-primary)] truncate" style={{ fontSize: 'var(--text-body-small)' }}>
+                    {approval.task_title || 'Call Request'}
+                  </p>
+                  <p className="mt-0.5 text-[var(--text-secondary)] truncate" style={{ fontSize: 'var(--text-caption)' }}>
+                    {approval.notes || 'Pending approval to place call'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<ShieldCheck size={14} />}
+                    onClick={() => approvalMutation.mutate({ id: approval.id, status: 'approved' })}
+                    loading={approvalMutation.isPending}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    icon={<XCircle size={14} />}
+                    onClick={() => approvalMutation.mutate({ id: approval.id, status: 'rejected' })}
+                    loading={approvalMutation.isPending}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

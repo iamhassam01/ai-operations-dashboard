@@ -52,6 +52,8 @@ export function PendingApprovals() {
     queryKey: ['approvals'],
     queryFn: () => fetch('/api/approvals').then(r => r.json()),
     refetchInterval: 5000,
+    // Filter out make_call approvals — those are handled on the Calls page
+    select: (data) => data.filter((a) => a.action_type !== 'make_call'),
   });
 
   const mutation = useMutation({

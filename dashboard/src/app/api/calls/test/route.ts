@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
               model: 'gpt-4o-mini',
               messages: [{ role: 'system', content: 'You are a test call assistant. Say the first message and then end the call politely.' }],
             },
-            voice: { provider: 'openai', voiceId: 'shimmer' },
+            voice: { provider: 'vapi', voiceId: 'Elliot' },
             endCallAfterSilence: 5,
           },
         }),

@@ -116,29 +116,29 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const inboundSystemPrompt = `You are ${agentIdentity}, a professional AI executive assistant for ${ownerName}${businessName ? ` at ${businessName}` : ''}.
+        const inboundSystemPrompt = `You are ${agentIdentity}, ${ownerName}'s personal assistant${businessName ? ` at ${businessName}` : ''}. You're a real person as far as the caller is concerned — warm, friendly, and genuinely helpful. Think of yourself as the kind of assistant who makes people smile.
 
-You are answering an INBOUND phone call from ${callerName !== 'Unknown Caller' ? callerName : 'an unknown caller'}.
+You're picking up an inbound call from ${callerName !== 'Unknown Caller' ? callerName : 'someone you don\'t know yet'}.
 
-YOUR ROLE: You are answering the phone on behalf of ${ownerName}. Be professional, warm, and helpful. Listen carefully to what the caller needs and collect all relevant information.${taskContext}
+YOUR VIBE: You're naturally conversational — not scripted, not robotic. Use casual-professional language. It's okay to be lighthearted, crack a small joke if it fits the moment, or show genuine interest in what the caller is saying. But always stay professional when the topic is serious.${taskContext}
 
-LANGUAGE - STRICT RULE: You MUST speak ONLY in English for the ENTIRE call, regardless of what language the caller uses. If the caller cannot speak English: "I apologize, I am only able to assist in English. Is there someone available who speaks English? No? Thank you, have a great day." Then end the call.
+LANGUAGE RULE: Speak ONLY in English. If the caller can't speak English: "Oh, I'm sorry — I can only help in English. Is there someone nearby who speaks English? No worries if not — thank you for calling, and have a great day!" Then end the call.
 
-WHAT TO DO:
-1. Greet the caller professionally.
-2. Listen carefully to understand why they are calling.
-3. Collect key information: their name (if unknown), purpose of call, any specific details (pricing, dates, availability, questions).
-4. If they are a supplier or service provider calling back: collect their offer details (price, availability, scope, warranty, payment methods).
-5. If they ask questions you cannot answer: note the questions and let them know someone will get back to them.
-6. Thank them and end the call professionally.
+HOW TO HANDLE THE CALL:
+1. You've already greeted them with your first message — now just listen and be helpful.
+2. Figure out why they're calling. Ask natural follow-up questions.
+3. Get what you need: their name if you don't have it, what they need, any specifics like pricing, dates, availability.
+4. If they're a supplier or vendor calling back: get their offer details — price, availability, scope, timeline, payment terms.
+5. If you don't know an answer: "That's a great question — let me make sure ${ownerName} gets back to you on that."
+6. Wrap up warmly and naturally.
 
-ABSOLUTE RULES:
-- NEVER make up information or commitments on behalf of ${ownerName}.
-- NEVER share internal details, task IDs, or system information.
-- Speak in 1-3 short sentences per turn. Warm, natural, professional.
-- If a question is outside your knowledge, say: "I will make sure ${ownerName} gets your message and follows up with you."
+KEEP IN MIND:
+- NEVER make up information or fake commitments.
+- NEVER mention task IDs, system details, or anything internal.
+- Keep your responses short — 1 to 3 sentences per turn. Sound like a human, not a chatbot.
+- When in doubt: "I'll make sure ${ownerName} knows about this and follows up with you personally."
 
-CLOSING: "Thank you so much for calling. ${ownerName} will follow up with you shortly. Have a wonderful day! Goodbye."`;
+WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you soon. Have an awesome day!"`;
 
         // Return assistant config for inbound call
         return NextResponse.json({
@@ -147,15 +147,21 @@ CLOSING: "Thank you so much for calling. ${ownerName} will follow up with you sh
             model: {
               provider: 'openai',
               model: 'gpt-4o',
-              temperature: 0.6,
-              maxTokens: 200,
+              temperature: 0.7,
+              maxTokens: 250,
               messages: [{ role: 'system', content: inboundSystemPrompt }],
             },
             transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
-            voice: { provider: 'openai', voiceId: 'shimmer' },
-            firstMessage: `Hello, thank you for calling${businessName ? ` ${businessName}` : ''}. This is ${agentIdentity} speaking. How can I help you today?`,
+            voice: { provider: 'vapi', voiceId: 'Elliot' },
+            firstMessage: `Hi! This is ${agentIdentity}, ${ownerName}'s personal assistant. How can I help you?`,
             recordingEnabled: true,
             endCallFunctionEnabled: true,
+            analysisPlan: {
+              summaryPlan: {
+                enabled: true,
+                messages: [{ role: 'system', content: 'Summarize this phone call in 2-3 concise sentences. Focus on: who called, what they wanted, key information shared, and any follow-up actions needed.' }],
+              },
+            },
           },
         });
       }
@@ -210,8 +216,12 @@ CLOSING: "Thank you so much for calling. ${ownerName} will follow up with you sh
         const durationSeconds = message.durationSeconds as number | undefined;
 
         const transcript = (artifact?.transcript as string | undefined) ?? '';
-        const recordingObj = artifact?.recording as Record<string, unknown> | undefined;
-        const recordingUrl = (recordingObj?.url as string | undefined) ?? '';
+        // Vapi sends recordingUrl as a direct string on artifact, or nested under recording.url
+        const recordingUrl =
+          (artifact?.recordingUrl as string | undefined) ??
+          ((artifact?.recording as Record<string, unknown> | undefined)?.url as string | undefined) ??
+          (artifact?.stereoRecordingUrl as string | undefined) ??
+          '';
         const summary = (analysis?.summary as string | undefined) ?? '';
 
         // Map Vapi endedReason to our call status
