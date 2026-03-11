@@ -14,10 +14,10 @@ out/
 # Secrets & credentials
 config_b64.txt
 
-# Internal documents (delivery reports, audits, analysis, guidance)
-MILESTONE_1_COMPREHENSIVE_GUIDANCE.md
-MILESTONE_1_DELIVERY_REPORT.md
-MILESTONE_STATUS_REPORT.md
+# Internal documents — delivery reports, audits, analysis, guidance
+*.pdf
+*.docx
+MILESTONE_*.md
 DESIGN_SYSTEM.md
 REQUIREMENTS_GAP_ANALYSIS_AND_UI_UX_AUDIT.MD
 REQUIREMENTS_GAP_ANALYSIS_AND_UI_UX_AUDIT_V2.md
@@ -28,7 +28,26 @@ COMPREHENSIVE_KNOWLEDGE_BASE_AND_UI_UX_GUIDELINES.txt
 Deliverables & Pricing.md
 Project Overview.md
 Acceptance_Test_Scenario_MVP.md
+AGENT_RESTRUCTURING_REFERENCE.md
+OPENCLAW_GAP_ANALYSIS.md
+VAPI_INTEGRATION_GUIDE.md
+
+# Report images
 image/
+
+# Deployment scripts & migrations (not client-facing)
+deploy/
+
+# Diagnostic & fix scripts
+*.sh
+fix-approvals.js
+setup-git.ps1
+
+# Logo / assets in root (keep dashboard/public/ copy)
+/gloura-logo.jpeg
+
+# Playwright MCP
+.playwright-mcp/
 
 # OS files
 .DS_Store
@@ -90,8 +109,6 @@ deploy/workspace/scripts/
 # Office documents (not tracked)
 *.docx
 
-# Ignore root duplicate logo (keep dashboard/public/gloura-logo.jpeg)
-/gloura-logo.jpeg
 MILESTONE_1_FINAL_REPORT.md
 MILESTONE_1_FINAL_REPORT copy.md
 AGENT_RESTRUCTURING_REFERENCE.md

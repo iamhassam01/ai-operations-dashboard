@@ -168,6 +168,22 @@ export default function CallsPage() {
     refetchInterval: 10000,
   });
 
+  // Auto-sync call data from Vapi API on page load and every 60 seconds
+  // This is a redundancy layer — if webhooks missed data, this backfills it
+  useQuery({
+    queryKey: ['vapi-auto-sync'],
+    queryFn: async () => {
+      const res = await fetch('/api/calls/sync-vapi', { method: 'POST' });
+      const data = await res.json();
+      if (data.synced > 0) {
+        queryClient.invalidateQueries({ queryKey: ['calls'] });
+      }
+      return data;
+    },
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
   const handleExpand = (id: string) => {
     setExpanded(expanded === id ? null : id);
   };

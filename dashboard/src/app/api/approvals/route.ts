@@ -84,7 +84,19 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
       const taskRes = await pool.query('SELECT title, contact_name, description FROM tasks WHERE id = $1', [approval.task_id]);
       task = taskRes.rows[0] || null;
     }
-    const contactName = task?.contact_name || 'the contact';
+    // Extract contact name: try task first, then parse from approval notes
+    let contactName = task?.contact_name || '';
+    if (!contactName || contactName === 'the contact') {
+      // Try to extract a name from the approval notes (e.g., "Call +123: Ask Nikon about...")
+      if (approval.notes) {
+        // Match patterns like "Ask Nikon", "Ask if Nikon", "call Nikon", "Inform Nikon", "tell Nikon"
+        const nameMatch = approval.notes.match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with))\s+([A-Z][a-zA-Z]+)/i);
+        if (nameMatch && nameMatch[1]) {
+          contactName = nameMatch[1];
+        }
+      }
+    }
+    if (!contactName) contactName = 'the contact';
 
     // ── Try Vapi Conversational Voice Call (primary) ──
     const vapiApiKey = process.env.VAPI_API_KEY;
@@ -138,7 +150,13 @@ SPECIAL SITUATIONS:
 VOICEMAIL: "Hey ${contactName}, it's ${agentName} calling for ${ownerName}. Just reaching out about ${callPurpose}. Give us a call back when you get a chance — thanks!" Then end the call.
 WRONG NUMBER: "Oh, I'm sorry about that — must have the wrong number! Have a good one!" Then end the call.
 NOT AVAILABLE: "No worries! Could you just let ${contactName} know that ${agentName} called for ${ownerName}? I'll try again later. Thanks so much!" Then end the call.
-HOSTILE/REFUSAL: "I totally understand. Won't take any more of your time — have a good day!" Then end the call.`;
+HOSTILE/REFUSAL: "I totally understand. Won't take any more of your time — have a good day!" Then end the call.
+
+MEETING BOOKING:
+- If the person wants to schedule a meeting with ${ownerName}, use the book_meeting function.
+- Ask their preferred date and time, and what it's about.
+- Confirm before booking: "So I'll set up [topic] for [date] at [time]. Sound right?"
+- After booking: "Done! ${ownerName} will see it on the calendar."`;
 
         const vapiRes = await fetch('https://api.vapi.ai/call', {
           method: 'POST',
@@ -157,6 +175,24 @@ HOSTILE/REFUSAL: "I totally understand. Won't take any more of your time — hav
                 temperature: 0.6,
                 maxTokens: 200,
                 messages: [{ role: 'system', content: systemPrompt }],
+                functions: [
+                  {
+                    name: 'book_meeting',
+                    description: 'Book a meeting or appointment on the calendar. Use when the person agrees to a meeting.',
+                    parameters: {
+                      type: 'object',
+                      properties: {
+                        title: { type: 'string', description: 'Brief title for the meeting' },
+                        date: { type: 'string', description: 'Meeting date in YYYY-MM-DD format' },
+                        time: { type: 'string', description: 'Start time in HH:MM format (24-hour)' },
+                        duration_minutes: { type: 'number', description: 'Duration in minutes, default 60' },
+                        attendee_name: { type: 'string', description: 'Name of the person' },
+                        notes: { type: 'string', description: 'Meeting purpose or notes' },
+                      },
+                      required: ['title', 'date', 'time'],
+                    },
+                  },
+                ],
               },
               transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
               voice: { provider: 'vapi', voiceId: 'Elliot' },
