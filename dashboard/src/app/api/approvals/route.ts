@@ -103,14 +103,14 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
 
         // Fetch agent identity from settings
         const settingsRes = await pool.query(
-          `SELECT key, value FROM settings WHERE key IN ('agent_name', 'owner_name')`
+          `SELECT key, value FROM settings WHERE key IN ('agent_name', 'owner_name', 'user_name')`
         );
         const settingsMap: Record<string, string> = {};
         for (const row of settingsRes.rows as { key: string; value: string }[]) {
-          settingsMap[row.key] = row.value;
+          settingsMap[row.key] = typeof row.value === 'string' ? row.value.replace(/^"|"$/g, '') : String(row.value);
         }
         const agentName = settingsMap['agent_name'] || 'Alex';
-        const ownerName = settingsMap['owner_name'] || 'the business owner';
+        const ownerName = settingsMap['owner_name'] || settingsMap['user_name'] || 'the business owner';
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://gloura.me';
 
         const systemPrompt = `You are ${agentName}, ${ownerName}'s personal assistant. You're making this call on ${ownerName}'s behalf, and you should sound like a real, friendly human — not a robot or a call center script.
@@ -234,14 +234,14 @@ HOSTILE/REFUSAL: "I totally understand. Won't take any more of your time — hav
 
       // Use agent settings for identity (no hardcoded values)
       const fallbackSettingsRes = await pool.query(
-        `SELECT key, value FROM settings WHERE key IN ('agent_identity', 'owner_name')`
+        `SELECT key, value FROM settings WHERE key IN ('agent_identity', 'owner_name', 'user_name')`
       );
       const fbMap: Record<string, string> = {};
       for (const row of fallbackSettingsRes.rows as { key: string; value: string }[]) {
         fbMap[row.key] = typeof row.value === 'string' ? row.value.replace(/^"|"$/g, '') : String(row.value);
       }
       const agentIdentity = fbMap['agent_identity'] || 'the assistant';
-      const fbOwnerName = fbMap['owner_name'] || 'the business owner';
+      const fbOwnerName = fbMap['owner_name'] || fbMap['user_name'] || 'the business owner';
       const twiml = `<Response><Say voice="alice">Hello, this is ${agentIdentity}, calling on behalf of ${fbOwnerName}. ${callPurpose.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}. Thank you for your time. Goodbye.</Say><Pause length="1"/><Hangup/></Response>`;
 
       const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`;

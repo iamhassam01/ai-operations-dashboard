@@ -95,14 +95,14 @@ export async function POST(request: NextRequest) {
 
         // Fetch agent identity + office hours + task context for system prompt
         const settingsRes = await pool.query(
-          `SELECT key, value FROM settings WHERE key IN ('agent_name', 'owner_name', 'agent_identity', 'business_name', 'operating_hours_start', 'operating_hours_end', 'timezone', 'office_hours')`
+          `SELECT key, value FROM settings WHERE key IN ('agent_name', 'owner_name', 'user_name', 'agent_identity', 'business_name', 'operating_hours_start', 'operating_hours_end', 'timezone', 'office_hours')`
         );
         const sMap: Record<string, string> = {};
         for (const row of settingsRes.rows as { key: string; value: string }[]) {
           sMap[row.key] = typeof row.value === 'string' ? row.value.replace(/^"|"$/g, '') : String(row.value);
         }
         const agentName = sMap['agent_name'] || 'Alex';
-        const ownerName = sMap['owner_name'] || 'the business owner';
+        const ownerName = sMap['owner_name'] || sMap['user_name'] || 'the business owner';
         const agentIdentity = sMap['agent_identity'] || agentName;
         const businessName = sMap['business_name'] || '';
 
@@ -212,17 +212,76 @@ WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you
 
         const artifact = message.artifact as Record<string, unknown> | undefined;
         const analysis = message.analysis as Record<string, unknown> | undefined;
+        const callObj = call as Record<string, unknown> | undefined;
         const endedReason = (message.endedReason as string | undefined) ?? '';
         const durationSeconds = message.durationSeconds as number | undefined;
 
-        const transcript = (artifact?.transcript as string | undefined) ?? '';
-        // Vapi sends recordingUrl as a direct string on artifact, or nested under recording.url
-        const recordingUrl =
-          (artifact?.recordingUrl as string | undefined) ??
-          ((artifact?.recording as Record<string, unknown> | undefined)?.url as string | undefined) ??
-          (artifact?.stereoRecordingUrl as string | undefined) ??
+        // Extract transcript from multiple paths (webhook artifact OR call object)
+        let transcript =
+          (artifact?.transcript as string | undefined) ??
+          (callObj?.transcript as string | undefined) ??
           '';
-        const summary = (analysis?.summary as string | undefined) ?? '';
+
+        // Extract recording URL from multiple paths (new artifact.recording object, legacy fields, call object)
+        const artifactRecording = artifact?.recording as Record<string, unknown> | string | undefined;
+        let recordingUrl =
+          (typeof artifactRecording === 'string' ? artifactRecording : undefined) ??
+          (typeof artifactRecording === 'object' && artifactRecording !== null ? (artifactRecording.url as string | undefined) : undefined) ??
+          (artifact?.recordingUrl as string | undefined) ??
+          (artifact?.stereoRecordingUrl as string | undefined) ??
+          (callObj?.recordingUrl as string | undefined) ??
+          (callObj?.stereoRecordingUrl as string | undefined) ??
+          '';
+
+        // Extract summary from multiple paths
+        let summary =
+          (analysis?.summary as string | undefined) ??
+          (callObj?.summary as string | undefined) ??
+          '';
+
+        // Log raw data for debugging
+        console.log(`[Vapi end-of-call-report] callId=${vapiCallId} transcript=${transcript.length}chars recording=${recordingUrl ? 'yes' : 'no'} summary=${summary.length}chars endedReason=${endedReason}`);
+
+        // ── Vapi API backup fetch: if critical data is missing, fetch directly from Vapi ──
+        if (!transcript || !recordingUrl) {
+          const vapiApiKey = process.env.VAPI_API_KEY;
+          if (vapiApiKey) {
+            try {
+              console.log(`[Vapi backup fetch] Fetching call data from Vapi API for ${vapiCallId}...`);
+              const vapiRes = await fetch(`https://api.vapi.ai/call/${vapiCallId}`, {
+                headers: { 'Authorization': `Bearer ${vapiApiKey}` },
+                signal: AbortSignal.timeout(10000),
+              });
+              if (vapiRes.ok) {
+                const vapiCall = await vapiRes.json() as Record<string, unknown>;
+                if (!transcript && vapiCall.transcript) {
+                  transcript = vapiCall.transcript as string;
+                  console.log(`[Vapi backup fetch] Got transcript: ${transcript.length} chars`);
+                }
+                if (!recordingUrl && vapiCall.recordingUrl) {
+                  recordingUrl = vapiCall.recordingUrl as string;
+                  console.log(`[Vapi backup fetch] Got recordingUrl`);
+                }
+                if (!recordingUrl) {
+                  const vapiArtifact = vapiCall.artifact as Record<string, unknown> | undefined;
+                  const vapiRecording = vapiArtifact?.recording as Record<string, unknown> | string | undefined;
+                  if (typeof vapiRecording === 'string') recordingUrl = vapiRecording;
+                  else if (vapiRecording && typeof vapiRecording === 'object') recordingUrl = (vapiRecording.url as string) ?? '';
+                }
+                if (!summary && vapiCall.summary) {
+                  summary = vapiCall.summary as string;
+                }
+                if (!summary && vapiCall.analysis) {
+                  summary = ((vapiCall.analysis as Record<string, unknown>).summary as string) ?? '';
+                }
+              } else {
+                console.error(`[Vapi backup fetch] Failed: ${vapiRes.status}`);
+              }
+            } catch (fetchErr) {
+              console.error('[Vapi backup fetch] Error:', fetchErr);
+            }
+          }
+        }
 
         // Map Vapi endedReason to our call status
         let finalStatus = 'completed';
