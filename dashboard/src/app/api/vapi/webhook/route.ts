@@ -362,8 +362,7 @@ WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you
 
           // Name self-identification: "This is X", "My name is X", "I'm X", "It's X"
           const nameMatch = customerText.match(/(?:this is|my name is|i'?m|i am|it'?s)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)/i);
-          if (nameMatch) capturedInfo['contact_name'] = nameMatch[1].trim();
-
+      if (nameMatch && /^[A-Z]/.test(nameMatch[1])) capturedInfo['contact_name'] = nameMatch[1].trim();
           // Time/date mentions
           const timeMatch = customerText.match(/(?:at|around|by|before|after)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|o'?clock)?)/i);
           if (timeMatch) capturedInfo['time_mentioned'] = timeMatch[0].trim();

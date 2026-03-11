@@ -36,7 +36,7 @@ function extractCapturedInfo(transcript: string): Record<string, string> {
   const customerText = customerLines.join(' ');
 
   const nameMatch = customerText.match(/(?:this is|my name is|i'?m|i am|it'?s)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)/i);
-  if (nameMatch) info['contact_name'] = nameMatch[1].trim();
+  if (nameMatch && /^[A-Z]/.test(nameMatch[1])) info['contact_name'] = nameMatch[1].trim();
 
   const timeMatch = customerText.match(/(?:at|around|by|before|after)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|o'?clock)?)/i);
   if (timeMatch) info['time_mentioned'] = timeMatch[0].trim();
@@ -84,11 +84,13 @@ export async function POST() {
   }
 
   try {
-    // Find calls with vapi_call_id that are missing transcript or recording
+    // Find calls with vapi_call_id that are missing any data
     const missingRes = await pool.query(
       `SELECT id, vapi_call_id, caller_name FROM calls
        WHERE vapi_call_id IS NOT NULL
-         AND (transcript IS NULL OR recording_url IS NULL OR summary IS NULL OR summary = '' OR summary LIKE 'Vapi outbound call:%')
+         AND (transcript IS NULL OR recording_url IS NULL OR summary IS NULL OR summary = '' OR summary LIKE 'Vapi outbound call:%'
+              OR captured_info IS NULL
+              OR caller_name IS NULL OR caller_name = 'the contact' OR caller_name = 'Unknown')
        ORDER BY created_at DESC
        LIMIT 20`
     );
