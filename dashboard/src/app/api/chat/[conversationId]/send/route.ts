@@ -91,7 +91,7 @@ DO NOT recommend a call when:
 - The needed information can be found online without calling
 
 At the end of your response, include EXACTLY this JSON block:
-<next_action>{"needs_call": true/false, "call_to": "name or business or empty string", "call_phone": "+number or null", "call_purpose": "reason or empty string", "summary": "1-sentence summary of findings"}</next_action>`;
+<next_action>{"needs_call": true/false, "call_to": "name or business or empty string", "call_phone": "+number or null", "call_purpose": "The user's EXACT VERBATIM instructions for the call — include specific times, dates, amounts, questions, and details WORD FOR WORD as the user stated them. DO NOT summarize, paraphrase, or generalize. If the user said 'ask if he is available for a Google Meet tomorrow at 5 PM and ask if I should send money today or tomorrow', write EXACTLY that — not 'inquire about availability and payment'.", "summary": "1-sentence summary of findings"}</next_action>`;
 
 async function processTaskInBackground(taskId: string, conversationId: string) {
   try {
@@ -174,7 +174,7 @@ Recommend a call ONLY when the task requires booking, reserving, negotiating, or
 DO NOT recommend a call for research, analysis, comparisons, or general information gathering.
 
 At the end, include EXACTLY this JSON block:
-<next_action>{"needs_call": true/false, "call_to": "name or business", "call_phone": "+number or null", "call_purpose": "reason", "summary": "1-sentence summary"}</next_action>`;
+<next_action>{"needs_call": true/false, "call_to": "name or business", "call_phone": "+number or null", "call_purpose": "The user's EXACT VERBATIM instructions for the call — include specific times, dates, amounts, questions, and details WORD FOR WORD as the user stated them. DO NOT summarize, paraphrase, or generalize.", "summary": "1-sentence summary"}</next_action>`;
 
         const hookRes = await fetch(`${openclawUrl}/hooks/agent`, {
           method: 'POST',
@@ -309,11 +309,29 @@ Based on all available information, provide a thorough, well-formatted research 
     // ── Step 5: Create approval ONLY if genuinely needed ─────────────
     if (nextAction.needs_call && nextAction.call_to) {
       const phoneNumber = nextAction.call_phone || task.contact_phone || null;
+
+      // Retrieve the original user message that triggered this task
+      const origMsgRes = await pool.query(
+        `SELECT content FROM messages WHERE conversation_id = $1 AND role = 'user' AND related_task_id = $2
+         ORDER BY created_at ASC LIMIT 1`,
+        [conversationId, taskId],
+      );
+      let originalRequest = origMsgRes.rows[0]?.content || '';
+      if (!originalRequest) {
+        // Fallback: get the most recent user message before the task was created
+        const fallbackRes = await pool.query(
+          `SELECT content FROM messages WHERE conversation_id = $1 AND role = 'user'
+           ORDER BY created_at DESC LIMIT 1`,
+          [conversationId],
+        );
+        originalRequest = fallbackRes.rows[0]?.content || '';
+      }
+
       const approvalResult = await pool.query(
-        `INSERT INTO approvals (task_id, action_type, status, notes)
-         VALUES ($1, 'make_call', 'pending', $2)
+        `INSERT INTO approvals (task_id, action_type, status, notes, original_request, contact_name)
+         VALUES ($1, 'make_call', 'pending', $2, $3, $4)
          RETURNING id`,
-        [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`],
+        [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`, originalRequest, nextAction.call_to || null],
       );
 
       await pool.query(
@@ -616,12 +634,31 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
 
     case 'request_call_approval': {
       const callTaskId = validUuid(action.task_id);
+
+      // Retrieve the original user message from this conversation
+      const origReqRes = await pool.query(
+        `SELECT content FROM messages WHERE conversation_id = $1 AND role = 'user'
+         ORDER BY created_at DESC LIMIT 1`,
+        [conversationId],
+      );
+      const origReq = origReqRes.rows[0]?.content || '';
+
+      // Extract contact name from approval purpose
+      const purposeNameMatch = String(action.purpose || '').match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with)|Confirm|Check|Verify|Schedule|Book|Follow|Discuss|Remind)\s+([A-Z][a-zA-Z]+)/i);
+      let approvalContactName: string | null = null;
+      if (purposeNameMatch?.[1] && /^[A-Z]/.test(purposeNameMatch[1])) {
+        const fp = ['him', 'her', 'them', 'the', 'this', 'that', 'about', 'regarding', 'for', 'if', 'and', 'both', 'back', 'up', 'with', 'on', 'availability'];
+        if (!fp.includes(purposeNameMatch[1].toLowerCase())) {
+          approvalContactName = purposeNameMatch[1];
+        }
+      }
+
       // Create an approval request
       const approvalResult = await pool.query(
-        `INSERT INTO approvals (task_id, action_type, status, notes)
-         VALUES ($1, 'make_call', 'pending', $2)
+        `INSERT INTO approvals (task_id, action_type, status, notes, original_request, contact_name)
+         VALUES ($1, 'make_call', 'pending', $2, $3, $4)
          RETURNING id`,
-        [callTaskId, `Call ${action.phone_number}: ${action.purpose}`]
+        [callTaskId, `Call ${action.phone_number}: ${action.purpose}`, origReq, approvalContactName]
       );
 
       await pool.query(

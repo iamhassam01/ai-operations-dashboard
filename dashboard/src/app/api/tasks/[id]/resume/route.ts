@@ -86,7 +86,7 @@ DO NOT recommend a call when:
 - The needed information can be found online without calling
 
 At the end of your response, include EXACTLY this JSON block:
-<next_action>{"needs_call": true/false, "call_to": "name or business or empty string", "call_phone": "+number or null", "call_purpose": "reason or empty string", "summary": "1-sentence summary of findings"}</next_action>`;
+<next_action>{"needs_call": true/false, "call_to": "name or business or empty string", "call_phone": "+number or null", "call_purpose": "The user's EXACT VERBATIM instructions for the call — include specific times, dates, amounts, questions, and details WORD FOR WORD as the user stated them. DO NOT summarize, paraphrase, or generalize.", "summary": "1-sentence summary of findings"}</next_action>`;
 
 async function processTask(taskId: string) {
   const openaiKey = process.env.OPENAI_API_KEY;
@@ -233,11 +233,31 @@ Based on all available information, provide a thorough, well-formatted research 
   // ── Step 5: Approval only if genuinely needed ─────────────────────
   if (nextAction.needs_call && nextAction.call_to) {
     const phoneNumber = nextAction.call_phone || task.contact_phone || null;
+
+    // Retrieve the original user message that triggered this task
+    let originalRequest = '';
+    if (conversationId) {
+      const origMsgRes = await pool.query(
+        `SELECT content FROM messages WHERE conversation_id = $1 AND role = 'user' AND related_task_id = $2
+         ORDER BY created_at ASC LIMIT 1`,
+        [conversationId, taskId],
+      );
+      originalRequest = origMsgRes.rows[0]?.content || '';
+      if (!originalRequest) {
+        const fallbackRes = await pool.query(
+          `SELECT content FROM messages WHERE conversation_id = $1 AND role = 'user'
+           ORDER BY created_at DESC LIMIT 1`,
+          [conversationId],
+        );
+        originalRequest = fallbackRes.rows[0]?.content || '';
+      }
+    }
+
     const approvalResult = await pool.query(
-      `INSERT INTO approvals (task_id, action_type, status, notes)
-       VALUES ($1, 'make_call', 'pending', $2)
+      `INSERT INTO approvals (task_id, action_type, status, notes, original_request, contact_name)
+       VALUES ($1, 'make_call', 'pending', $2, $3, $4)
        RETURNING id`,
-      [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`],
+      [taskId, `Call ${nextAction.call_to}${phoneNumber ? ` at ${phoneNumber}` : ''}: ${nextAction.call_purpose}`, originalRequest, nextAction.call_to || null],
     );
 
     await pool.query(

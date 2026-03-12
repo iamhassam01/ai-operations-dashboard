@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
 // Initiate a voice call via Vapi (primary) or Twilio TwiML fallback
 // Falls back to direct Twilio TwiML if Vapi is not configured or fails
-async function executeApprovedCall(approval: { id: string; task_id: string | null; notes: string }) {
+async function executeApprovedCall(approval: { id: string; task_id: string | null; notes: string; original_request?: string; contact_name?: string }) {
   try {
     // Extract phone number from approval notes or task
     let phoneNumber: string | null = null;
@@ -84,15 +84,19 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
       const taskRes = await pool.query('SELECT title, contact_name, description FROM tasks WHERE id = $1', [approval.task_id]);
       task = taskRes.rows[0] || null;
     }
-    // Extract contact name: try task first, then parse from approval notes
-    let contactName = task?.contact_name || '';
+
+    // Extract contact name: priority order:
+    // 1. approval.contact_name column (set during approval creation)
+    // 2. task.contact_name
+    // 3. Parse from approval notes or original_request
+    let contactName = approval.contact_name || task?.contact_name || '';
     if (!contactName || contactName === 'the contact') {
-      if (approval.notes) {
-        // Match patterns: "Call Nikon on both", "Ask Nikon about", "Tell Nikon", "Speak with Nikon"
-        const nameMatch = approval.notes.match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with))\s+([A-Z][a-zA-Z]+)/i);
+      // Try parsing from approval notes AND the original user request
+      const textSources = [approval.notes, approval.original_request].filter(Boolean).join(' ');
+      if (textSources) {
+        const nameMatch = textSources.match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with)|Confirm|Check|Verify|Schedule|Book|Arrange|Follow|Discuss|Notify|Update|Remind|Coordinate|Meet|Review)\s+([A-Z][a-zA-Z]+)/i);
         if (nameMatch && nameMatch[1] && /^[A-Z]/.test(nameMatch[1])) {
-          // Reject common false positives that aren't names
-          const falsePositives = ['him', 'her', 'them', 'the', 'this', 'that', 'about', 'regarding', 'for', 'if', 'and', 'both', 'back'];
+          const falsePositives = ['him', 'her', 'them', 'the', 'this', 'that', 'about', 'regarding', 'for', 'if', 'and', 'both', 'back', 'up', 'with', 'on', 'availability', 'available', 'whether', 'when', 'what', 'how', 'why'];
           if (!falsePositives.includes(nameMatch[1].toLowerCase())) {
             contactName = nameMatch[1];
           }
@@ -131,6 +135,9 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
         const today = new Date().toISOString().split('T')[0];
         const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
+        // Use the original user request if available (verbatim), otherwise fall back to approval notes
+        const verbatimInstructions = approval.original_request || approval.notes || callPurpose;
+
         const systemPrompt = `You are ${agentName}, ${ownerName}'s personal assistant. You're making this call on ${ownerName}'s behalf, and you should sound like a real, friendly human — not a robot or a call center script.
 
 Today's date is ${today}. Tomorrow is ${tomorrow}.
@@ -138,8 +145,8 @@ Today's date is ${today}. Tomorrow is ${tomorrow}.
 You're calling ${contactName}.
 Why you're calling: ${callPurpose}
 
-EXACT INSTRUCTIONS FROM ${ownerName.toUpperCase()} — FOLLOW THESE PRECISELY:
-"${approval.notes}"
+ORIGINAL REQUEST FROM ${ownerName.toUpperCase()} (WORD-FOR-WORD — follow these EXACTLY):
+"${verbatimInstructions}"
 
 You MUST follow these instructions EXACTLY as written. If ${ownerName} said a specific time, date, question, or amount — use those EXACT details. Do NOT paraphrase, generalize, or say "we're flexible" unless the instructions explicitly say so. If a question is about whether ${ownerName} should do something, ask it that way — do NOT reverse who is doing what.
 

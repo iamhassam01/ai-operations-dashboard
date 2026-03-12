@@ -476,11 +476,17 @@ WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you
                 // Get task info for the retry approval notes
                 const taskInfoRes = await pool.query('SELECT title, contact_phone FROM tasks WHERE id = $1', [task_id]);
                 const taskInfo = taskInfoRes.rows[0];
+                // Get original_request and contact_name from the most recent approval for this task
+                const prevApprovalRes = await pool.query(
+                  `SELECT original_request, contact_name FROM approvals WHERE task_id = $1 ORDER BY created_at DESC LIMIT 1`,
+                  [task_id]
+                );
+                const prevApproval = prevApprovalRes.rows[0];
                 if (taskInfo?.contact_phone) {
                   await pool.query(
-                    `INSERT INTO approvals (task_id, action_type, status, notes)
-                     VALUES ($1, 'make_call', 'pending', $2)`,
-                    [task_id, `Retry ${attemptCount + 1}/${MAX_CALL_RETRIES}: Call ${taskInfo.contact_phone}: ${taskInfo.title || 'Follow up'}`]
+                    `INSERT INTO approvals (task_id, action_type, status, notes, original_request, contact_name)
+                     VALUES ($1, 'make_call', 'pending', $2, $3, $4)`,
+                    [task_id, `Retry ${attemptCount + 1}/${MAX_CALL_RETRIES}: Call ${taskInfo.contact_phone}: ${taskInfo.title || 'Follow up'}`, prevApproval?.original_request || null, prevApproval?.contact_name || null]
                   );
                 }
               } else {
