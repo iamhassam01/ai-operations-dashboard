@@ -577,19 +577,28 @@ WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you
 
       // ── Tool calls: Vapi function calling (e.g., book_meeting) ──
       case 'tool-calls': {
-        const toolCallList = (message.toolCallList ?? message.toolWithToolCallList ?? []) as Array<{
-          id?: string;
-          name?: string;
-          toolCall?: { id: string; parameters: Record<string, unknown> };
-          parameters?: Record<string, unknown>;
-        }>;
+        // Vapi sends tool calls in multiple possible structures:
+        // 1. message.toolCalls[] with { id, type, function: { name, arguments } }
+        // 2. message.toolCallList[] or message.toolWithToolCallList[] (legacy)
+        const rawToolCalls = (message.toolCalls ?? message.toolCallList ?? message.toolWithToolCallList ?? []) as Array<Record<string, unknown>>;
 
         const results: Array<{ name: string; toolCallId: string; result: string }> = [];
 
-        for (const item of toolCallList) {
-          const toolName = item.name || '';
-          const toolCallId = item.toolCall?.id || item.id || '';
-          const params = item.toolCall?.parameters || item.parameters || {};
+        for (const item of rawToolCalls) {
+          // Extract function name: try item.function.name first (current Vapi format), then item.name (legacy)
+          const fn = item.function as { name?: string; arguments?: string } | undefined;
+          const toolName = fn?.name || (item.name as string) || '';
+          // Extract tool call ID
+          const toolCallId = (item.id as string) || (item.toolCall as { id?: string } | undefined)?.id || '';
+          // Extract parameters: parse from function.arguments (JSON string) or fallback to item.parameters
+          let params: Record<string, unknown> = {};
+          if (fn?.arguments) {
+            try { params = JSON.parse(fn.arguments); } catch { params = {}; }
+          } else if (item.parameters) {
+            params = item.parameters as Record<string, unknown>;
+          } else if ((item.toolCall as { parameters?: Record<string, unknown> } | undefined)?.parameters) {
+            params = (item.toolCall as { parameters: Record<string, unknown> }).parameters;
+          }
 
           if (toolName === 'book_meeting') {
             try {

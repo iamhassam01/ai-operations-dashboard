@@ -87,12 +87,15 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
     // Extract contact name: try task first, then parse from approval notes
     let contactName = task?.contact_name || '';
     if (!contactName || contactName === 'the contact') {
-      // Try to extract a name from the approval notes (e.g., "Call +123: Ask Nikon about...")
       if (approval.notes) {
-        // Match patterns like "Ask Nikon", "Ask if Nikon", "call Nikon", "Inform Nikon", "tell Nikon"
+        // Match patterns: "Call Nikon on both", "Ask Nikon about", "Tell Nikon", "Speak with Nikon"
         const nameMatch = approval.notes.match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with))\s+([A-Z][a-zA-Z]+)/i);
-        if (nameMatch && nameMatch[1]) {
-          contactName = nameMatch[1];
+        if (nameMatch && nameMatch[1] && /^[A-Z]/.test(nameMatch[1])) {
+          // Reject common false positives that aren't names
+          const falsePositives = ['him', 'her', 'them', 'the', 'this', 'that', 'about', 'regarding', 'for', 'if', 'and', 'both', 'back'];
+          if (!falsePositives.includes(nameMatch[1].toLowerCase())) {
+            contactName = nameMatch[1];
+          }
         }
       }
     }
@@ -125,10 +128,20 @@ async function executeApprovedCall(approval: { id: string; task_id: string | nul
         const ownerName = settingsMap['owner_name'] || settingsMap['user_name'] || 'the business owner';
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://gloura.me';
 
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
         const systemPrompt = `You are ${agentName}, ${ownerName}'s personal assistant. You're making this call on ${ownerName}'s behalf, and you should sound like a real, friendly human — not a robot or a call center script.
+
+Today's date is ${today}. Tomorrow is ${tomorrow}.
 
 You're calling ${contactName}.
 Why you're calling: ${callPurpose}
+
+EXACT INSTRUCTIONS FROM ${ownerName.toUpperCase()} — FOLLOW THESE PRECISELY:
+"${approval.notes}"
+
+You MUST follow these instructions EXACTLY as written. If ${ownerName} said a specific time, date, question, or amount — use those EXACT details. Do NOT paraphrase, generalize, or say "we're flexible" unless the instructions explicitly say so. If a question is about whether ${ownerName} should do something, ask it that way — do NOT reverse who is doing what.
 
 YOUR PERSONALITY: You're warm, genuine, and easy to talk to. You can be lighthearted when the moment calls for it — a small joke, a friendly comment — but you know when to be all business. Think "helpful friend who's really good at their job."
 
@@ -139,12 +152,13 @@ IMPORTANT RULES:
 - Don't read out phone numbers, order IDs, or reference codes.
 - Don't make up information or promise things you're not sure about.
 - Keep your turns short: 1-3 sentences. Sound natural, like you're actually talking to someone.
+- Do NOT end the call until you have addressed ALL the points in ${ownerName}'s instructions above. If there are multiple questions or requests, make sure you cover EVERY single one before wrapping up.
 
 HOW THE CALL SHOULD GO:
 1. Your opening is handled automatically — jump right into the purpose once they confirm who they are.
-2. Be clear about why you're calling, in plain conversational language.
+2. Be clear about why you're calling, in plain conversational language. Use the EXACT details from ${ownerName}'s instructions.
 3. Listen, respond naturally, confirm details. Have a real conversation.
-4. Wrap up warmly: "Perfect, that's everything I needed. Thanks so much — have a great day!"
+4. Only after ALL points are covered, wrap up warmly: "Perfect, that's everything I needed. Thanks so much — have a great day!"
 
 SPECIAL SITUATIONS:
 VOICEMAIL: "Hey ${contactName}, it's ${agentName} calling for ${ownerName}. Just reaching out about ${callPurpose}. Give us a call back when you get a chance — thanks!" Then end the call.
@@ -153,10 +167,12 @@ NOT AVAILABLE: "No worries! Could you just let ${contactName} know that ${agentN
 HOSTILE/REFUSAL: "I totally understand. Won't take any more of your time — have a good day!" Then end the call.
 
 MEETING BOOKING:
-- If the person wants to schedule a meeting with ${ownerName}, use the book_meeting function.
-- Ask their preferred date and time, and what it's about.
+- If the conversation involves scheduling a meeting with ${ownerName}, use the book_meeting function.
+- Use the EXACT date and time from ${ownerName}'s instructions if specified. "Tomorrow" means ${tomorrow}. Today is ${today}.
+- You MUST convert relative dates: "tomorrow" = ${tomorrow}, "today" = ${today}.
 - Confirm before booking: "So I'll set up [topic] for [date] at [time]. Sound right?"
-- After booking: "Done! ${ownerName} will see it on the calendar."`;
+- After booking: "Done! ${ownerName} will see it on the calendar."
+- If booking fails, say: "I wasn't able to get that onto the calendar right now, but I'll make sure ${ownerName} gets all the details and sets it up."`;
 
         const vapiRes = await fetch('https://api.vapi.ai/call', {
           method: 'POST',
