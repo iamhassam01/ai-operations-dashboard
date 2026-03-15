@@ -522,8 +522,8 @@ ACTION FORMAT — when you need to take an action, include exactly one of these 
 To create a task:
 <action>{"type":"create_task","title":"...","task_type":"call|booking|follow_up|cancellation|inquiry|other","priority":"low|medium|high|urgent","description":"...","contact_name":"...","contact_phone":"...","contact_email":"...","address":"...","preferred_time_1":"...","preferred_time_2":"...","constraints":"..."}</action>
 
-To request approval for a call:
-<action>{"type":"request_call_approval","task_id":"...","phone_number":"...","purpose":"..."}</action>
+To request approval for a call (always include contact_name and target_language):
+<action>{"type":"request_call_approval","task_id":"...","contact_name":"...","phone_number":"...","target_language":"English|Czech","purpose":"..."}</action>
 
 To store a memory about the user:
 <action>{"type":"store_memory","category":"preference|fact|context|instruction","content":"..."}</action>
@@ -633,7 +633,7 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
     }
 
     case 'request_call_approval': {
-      const callTaskId = validUuid(action.task_id);
+      let callTaskId = validUuid(action.task_id);
 
       // Retrieve the original user message from this conversation
       const origReqRes = await pool.query(
@@ -643,14 +643,29 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
       );
       const origReq = origReqRes.rows[0]?.content || '';
 
-      // Extract contact name from approval purpose
-      const purposeNameMatch = String(action.purpose || '').match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with)|Confirm|Check|Verify|Schedule|Book|Follow|Discuss|Remind)\s+([A-Z][a-zA-Z]+)/i);
-      let approvalContactName: string | null = null;
-      if (purposeNameMatch?.[1] && /^[A-Z]/.test(purposeNameMatch[1])) {
-        const fp = ['him', 'her', 'them', 'the', 'this', 'that', 'about', 'regarding', 'for', 'if', 'and', 'both', 'back', 'up', 'with', 'on', 'availability'];
-        if (!fp.includes(purposeNameMatch[1].toLowerCase())) {
-          approvalContactName = purposeNameMatch[1];
+      // Extract contact name from action.contact_name or fallback to approval purpose
+      let approvalContactName: string | null = (action.contact_name as string) || null;
+      if (!approvalContactName) {
+        const purposeNameMatch = String(action.purpose || '').match(/(?:Ask(?:\s+if)?|Call|Inform|Tell|Reach|Contact|Speak\s+(?:to|with)|Confirm|Check|Verify|Schedule|Book|Follow|Discuss|Remind)\s+([A-Z][a-zA-Z]+)/i);
+        if (purposeNameMatch?.[1] && /^[A-Z]/.test(purposeNameMatch[1])) {
+          const fp = ['him', 'her', 'them', 'the', 'this', 'that', 'about', 'regarding', 'for', 'if', 'and', 'both', 'back', 'up', 'with', 'on', 'availability'];
+          if (!fp.includes(purposeNameMatch[1].toLowerCase())) {
+            approvalContactName = purposeNameMatch[1];
+          }
         }
+      }
+
+      if (!callTaskId) {
+        // Auto-create task to ensure calls always have linked tasks
+        const taskTitle = `Call ${approvalContactName || action.phone_number || 'Contact'}`;
+        const taskDesc = `Auto-generated task for call. Purpose: ${action.purpose || 'No purpose provided'}`;
+        const taskCreateResult = await pool.query(
+           `INSERT INTO tasks (title, description, task_type, priority, status)
+            VALUES ($1, $2, 'call', 'medium', 'pending_approval')
+            RETURNING id`,
+            [taskTitle, taskDesc]
+        );
+        callTaskId = taskCreateResult.rows[0].id;
       }
 
       // Create an approval request
@@ -658,7 +673,7 @@ async function executeAction(action: { type: string; [key: string]: unknown }, c
         `INSERT INTO approvals (task_id, action_type, status, notes, original_request, contact_name)
          VALUES ($1, 'make_call', 'pending', $2, $3, $4)
          RETURNING id`,
-        [callTaskId, `Call ${action.phone_number}: ${action.purpose}`, origReq, approvalContactName]
+        [callTaskId, `${typeof action.target_language === 'string' && action.target_language.toLowerCase() === 'czech' ? '[LANG:CZ] ' : ''}Call ${action.phone_number}: ${action.purpose}`, origReq, approvalContactName]
       );
 
       await pool.query(

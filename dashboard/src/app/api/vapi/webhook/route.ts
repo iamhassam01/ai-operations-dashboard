@@ -245,7 +245,13 @@ WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you
         const analysis = message.analysis as Record<string, unknown> | undefined;
         const callObj = call as Record<string, unknown> | undefined;
         const endedReason = (message.endedReason as string | undefined) ?? '';
-        const durationSeconds = message.durationSeconds as number | undefined;
+let durationSeconds = (message.durationSeconds as number | undefined) ?? (message.duration as number | undefined) ?? (callObj?.durationSeconds as number | undefined) ?? (callObj?.duration as number | undefined);
+          if (!durationSeconds && callObj?.durationMinutes && typeof callObj.durationMinutes === 'number') {
+            durationSeconds = Math.round(callObj.durationMinutes * 60);
+          }
+          if (!durationSeconds && callObj?.endedAt && callObj?.startedAt) {
+            durationSeconds = Math.round((new Date(callObj.endedAt as string).getTime() - new Date(callObj.startedAt as string).getTime()) / 1000);
+          }
 
         // Extract transcript from multiple paths (webhook artifact OR call object)
         let transcript =

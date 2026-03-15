@@ -223,7 +223,9 @@ MEETING BOOKING:
               },
               transcriber: { provider: 'deepgram', model: 'nova-2', language: 'multi' },
               voice: { provider: 'vapi', voiceId: 'Elliot' },
-              firstMessage: `Hi, this is ${agentName}, ${ownerName}'s personal assistant. Am I speaking with ${contactName}?`,
+              firstMessage: callPurpose.includes('[LANG:CZ]') 
+                ? `Dobrý den, tady ${agentName}, osobní asistent od ${ownerName}. Mluvím prosím s ${contactName}?` 
+                : `Hi, this is ${agentName}, ${ownerName}'s personal assistant. Am I speaking with ${contactName}?`,
               serverUrl: `${baseUrl}/api/vapi/webhook`,
               recordingEnabled: true,
               endCallFunctionEnabled: true,
