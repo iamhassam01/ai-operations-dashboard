@@ -222,7 +222,7 @@ MEETING BOOKING:
                 ],
               },
               transcriber: { provider: 'deepgram', model: 'nova-2', language: 'multi' },
-              voice: { provider: 'openai', voiceId: 'echo' },
+              voice: { provider: 'vapi', voiceId: 'Elliot' },
               firstMessage: `Hi, this is ${agentName}, ${ownerName}'s personal assistant. Am I speaking with ${contactName}?`,
               serverUrl: `${baseUrl}/api/vapi/webhook`,
               recordingEnabled: true,

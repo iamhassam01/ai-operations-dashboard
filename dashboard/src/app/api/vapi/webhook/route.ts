@@ -182,7 +182,7 @@ WRAPPING UP: "Thanks so much for calling! ${ownerName} will be in touch with you
               ],
             },
             transcriber: { provider: 'deepgram', model: 'nova-2', language: 'multi' },
-            voice: { provider: 'openai', voiceId: 'echo' },
+            voice: { provider: 'vapi', voiceId: 'Elliot' },
             firstMessage: `Hi! This is ${agentIdentity}, ${ownerName}'s personal assistant. How can I help you?`,
             serverUrl: `${baseUrl}/api/vapi/webhook`,
             recordingEnabled: true,
